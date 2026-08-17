@@ -20,6 +20,10 @@ class TextAnnotator(typing.Protocol):
     def annotate(self, text: str) -> str: ...
 
 
+class TextAnnotatorFactory(typing.Protocol):
+    def __call__(self, pronunciations_path: str) -> TextAnnotator: ...
+
+
 class BookRepository(typing.Protocol):
     def get_book(self, identifier: str) -> core_entities.Book: ...
 

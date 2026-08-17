@@ -109,7 +109,11 @@ def build_container() -> Container:
                 extract_text_by_source,
                 copyedit_by_editor,
             ),
-            *speech_generation_commands.build_commands(create_audiobook_by_source, list_voices),
+            *speech_generation_commands.build_commands(
+                create_audiobook_by_source,
+                list_voices,
+                text_annotator.build_from_pronunciations_file,
+            ),
         ],
         routes=[
             *text_extraction_routes.build_routes(
@@ -118,6 +122,10 @@ def build_container() -> Container:
                 extract_text_by_source,
                 copyedit_by_editor,
             ),
-            *speech_generation_routes.build_routes(create_audiobook_by_source, list_voices),
+            *speech_generation_routes.build_routes(
+                create_audiobook_by_source,
+                list_voices,
+                text_annotator.build_from_pronunciations_file,
+            ),
         ],
     )

@@ -3,6 +3,7 @@ import json
 import typing
 
 from book_converter.features.speech_generation import dto
+from book_converter.features.speech_generation import interfaces
 from book_converter.features.speech_generation import use_cases
 from book_converter.presentation import api
 
@@ -12,12 +13,13 @@ _UseCaseT = typing.TypeVar("_UseCaseT")
 def build_routes(
     create_audiobook_by_source: dict[str, use_cases.CreateAudiobookUseCase],
     list_voices: use_cases.ListVoiceProfilesUseCase,
+    build_text_annotator: interfaces.TextAnnotatorFactory,
 ) -> list[api.Route]:
     return [
         api.Route(
             rule="/audiobooks",
             method="POST",
-            handler=_create_audiobook_handler(create_audiobook_by_source),
+            handler=_create_audiobook_handler(create_audiobook_by_source, build_text_annotator),
         ),
         api.Route(
             rule="/engines/{engine}/voices",
@@ -27,11 +29,17 @@ def build_routes(
 
 
 def _create_audiobook_handler(
-    use_cases_by_source: dict[str, use_cases.CreateAudiobookUseCase]
+    use_cases_by_source: dict[str, use_cases.CreateAudiobookUseCase],
+    build_text_annotator: interfaces.TextAnnotatorFactory,
 ) -> api.Handler:
     def handle(request: api.Request) -> api.Response:
         payload = json.loads(request.content)
         use_case = _resolve(use_cases_by_source, payload.get("source", "file"))
+        pronunciations = payload.get("pronunciations")
+        if pronunciations is not None:
+            use_case = dataclasses.replace(
+                use_case, text_annotator=build_text_annotator(pronunciations)
+            )
         output = use_case.execute(
             dto.CreateAudiobookInput(
                 identifier=payload["identifier"],
