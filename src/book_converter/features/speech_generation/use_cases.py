@@ -11,17 +11,33 @@ class CreateAudiobookUseCase:
     bundle_initializer: interfaces.BundleInitializer
     text_annotator: interfaces.TextAnnotator | None
 
-    def execute(self, input_dto: dto.CreateAudiobookInput):
+    def execute(self, input_dto: dto.CreateAudiobookInput) -> dto.CreateAudiobookOutput:
         book = self.book_repository.get_book(input_dto.identifier)
         bundler = self.bundle_initializer.create(
             input_dto.target, metadata=book.metadata
         )
         duration = 0
         for chapter in book.chapters:
-            text = self.text_annotator.annotate(chapter.content)
+            text = chapter.content
+            if self.text_annotator is not None:
+                text = self.text_annotator.annotate(text)
             part = self.tts_provider.generate(text, input_dto.engine, input_dto.voice)
             bundler.add_part(chapter.title, part.data)
             duration += part.duration
         return dto.CreateAudiobookOutput(
             destination=bundler.finalize(), total_duration=duration
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class ListVoiceProfilesUseCase:
+    tts_provider: interfaces.TTSProvider
+
+    def execute(self, input_dto: dto.ListVoiceProfilesInput) -> dto.ListVoiceProfilesOutput:
+        profiles = self.tts_provider.get_voice_profiles(input_dto.engine)
+        return dto.ListVoiceProfilesOutput(
+            voices=[
+                dto.VoiceProfileDto(id=profile.id, description=profile.description)
+                for profile in profiles
+            ]
         )

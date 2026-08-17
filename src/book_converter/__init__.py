@@ -1,2 +1,4 @@
 def main() -> None:
-    print("Hello from book-converter!")
+    from book_converter.entrypoints import cli
+
+    cli.main()

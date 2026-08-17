@@ -16,7 +16,7 @@ class Request:
     files: MultiDict[typing.IO] = dataclasses.field(
         default_factory=dict[str, typing.IO]
     )
-    form: MultiDict[str] = dataclasses.field(dict[str, list[str]])
+    form: MultiDict[str] = dataclasses.field(default_factory=dict[str, list[str]])
 
 
 @dataclasses.dataclass(frozen=True)
@@ -33,6 +33,7 @@ type Handler = typing.Callable[[Request], Response]
 class Route:
     rule: str
     handler: Handler
+    method: Method = "GET"
 
 
 class Application(typing.Protocol):
