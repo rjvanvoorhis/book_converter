@@ -10,7 +10,7 @@ from book_converter.infrastructure.speech_generation import ffmpeg_support
 @dataclasses.dataclass(frozen=True)
 class KokoroTtsProvider:
     base_url: str = "http://localhost:8880"
-    response_format: str = "wav"
+    response_format: str = "mp3"
     timeout: float = 300.0
 
     def get_engine_profiles(self) -> list[entities.EngineProfile]:
