@@ -6,16 +6,18 @@ from book_converter.features.speech_generation import dto
 from book_converter.features.speech_generation import use_cases
 from book_converter.presentation import api
 
+_UseCaseT = typing.TypeVar("_UseCaseT")
+
 
 def build_routes(
-    create_audiobook: use_cases.CreateAudiobookUseCase,
+    create_audiobook_by_source: dict[str, use_cases.CreateAudiobookUseCase],
     list_voices: use_cases.ListVoiceProfilesUseCase,
 ) -> list[api.Route]:
     return [
         api.Route(
             rule="/audiobooks",
             method="POST",
-            handler=_create_audiobook_handler(create_audiobook),
+            handler=_create_audiobook_handler(create_audiobook_by_source),
         ),
         api.Route(
             rule="/engines/{engine}/voices",
@@ -24,9 +26,12 @@ def build_routes(
     ]
 
 
-def _create_audiobook_handler(use_case: use_cases.CreateAudiobookUseCase) -> api.Handler:
+def _create_audiobook_handler(
+    use_cases_by_source: dict[str, use_cases.CreateAudiobookUseCase]
+) -> api.Handler:
     def handle(request: api.Request) -> api.Response:
         payload = json.loads(request.content)
+        use_case = _resolve(use_cases_by_source, payload.get("source", "file"))
         output = use_case.execute(
             dto.CreateAudiobookInput(
                 identifier=payload["identifier"],
@@ -47,6 +52,14 @@ def _list_voices_handler(use_case: use_cases.ListVoiceProfilesUseCase) -> api.Ha
         return _json_response(output)
 
     return handle
+
+
+def _resolve(use_cases_by_source: dict[str, _UseCaseT], source: str) -> _UseCaseT:
+    try:
+        return use_cases_by_source[source]
+    except KeyError:
+        available = ", ".join(sorted(use_cases_by_source))
+        raise ValueError(f"Unknown source '{source}'. Available: {available}") from None
 
 
 def _json_response(output: typing.Any) -> api.Response:

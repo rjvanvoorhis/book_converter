@@ -1,13 +1,16 @@
 import dataclasses
+import typing
 
 from book_converter.features.speech_generation import dto
 from book_converter.features.speech_generation import use_cases
 from book_converter.presentation import cli
 
+_UseCaseT = typing.TypeVar("_UseCaseT")
+
 
 @dataclasses.dataclass(frozen=True)
 class CreateAudiobookCommand:
-    use_case: use_cases.CreateAudiobookUseCase
+    use_cases_by_source: dict[str, use_cases.CreateAudiobookUseCase]
 
     @property
     def name(self) -> str:
@@ -18,9 +21,15 @@ class CreateAudiobookCommand:
         return "Convert an ebook into an audiobook."
 
     def execute(
-        self, identifier: str, target: str, engine: str = "kokoro", voice: str = "af_heart"
+        self,
+        identifier: str,
+        target: str,
+        source: str = "file",
+        engine: str = "kokoro",
+        voice: str = "af_heart",
     ) -> str:
-        output = self.use_case.execute(
+        use_case = _resolve(self.use_cases_by_source, source)
+        output = use_case.execute(
             dto.CreateAudiobookInput(
                 identifier=identifier, target=target, engine=engine, voice=voice
             )
@@ -52,10 +61,18 @@ class ListVoicesCommand:
 
 
 def build_commands(
-    create_audiobook: use_cases.CreateAudiobookUseCase,
+    create_audiobook_by_source: dict[str, use_cases.CreateAudiobookUseCase],
     list_voices: use_cases.ListVoiceProfilesUseCase,
 ) -> list[cli.Command]:
     return [
-        CreateAudiobookCommand(use_case=create_audiobook),
+        CreateAudiobookCommand(use_cases_by_source=create_audiobook_by_source),
         ListVoicesCommand(use_case=list_voices),
     ]
+
+
+def _resolve(use_cases_by_source: dict[str, _UseCaseT], source: str) -> _UseCaseT:
+    try:
+        return use_cases_by_source[source]
+    except KeyError:
+        available = ", ".join(sorted(use_cases_by_source))
+        raise ValueError(f"Unknown source '{source}'. Available: {available}") from None

@@ -14,4 +14,12 @@ class EbookConverter(typing.Protocol):
 
 
 class EbookSaver(typing.Protocol):
-    def save(identifier: str, book: core_entities.Book) -> None: ...
+    def save(self, identifier: str, book: core_entities.Book) -> None: ...
+
+
+class ExtractedTextRepository(typing.Protocol):
+    def get_book(self, identifier: str) -> core_entities.Book: ...
+
+
+class CopyEditor(typing.Protocol):
+    def edit(self, text: str) -> str: ...

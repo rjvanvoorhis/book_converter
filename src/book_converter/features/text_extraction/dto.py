@@ -37,3 +37,33 @@ class ExtractChapterOutput:
     title: str
     content: str
     word_count: int
+
+
+@dataclasses.dataclass
+class ExtractTextInput:
+    identifier: str
+    target: str
+
+
+@dataclasses.dataclass
+class ExtractTextOutput:
+    destination: str
+    total_chapters: int
+
+
+@dataclasses.dataclass
+class CopyEditInput:
+    identifier: str
+
+
+@dataclasses.dataclass
+class ChapterEditDto:
+    id: int
+    title: str
+    diff: str
+
+
+@dataclasses.dataclass
+class CopyEditOutput:
+    destination: str
+    chapters: list[ChapterEditDto]

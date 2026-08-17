@@ -34,7 +34,7 @@ def run_ffmpeg(args: list[str]) -> None:
 
 
 @contextlib.contextmanager
-def _temp_file(data: bytes) -> typing.Iterator[pathlib.Path]:
+def _temp_file(data: bytes) -> typing.Generator[pathlib.Path]:
     handle = tempfile.NamedTemporaryFile(delete=False)
     try:
         handle.write(data)

@@ -1,4 +1,5 @@
 import dataclasses
+import difflib
 
 from book_converter.features.text_extraction import dto
 from book_converter.features.text_extraction import interfaces
@@ -48,3 +49,55 @@ class ExtractChapterUseCase:
             content=chapter.content,
             word_count=chapter.get_word_count(),
         )
+
+
+@dataclasses.dataclass
+class ExtractTextUseCase:
+    repository: interfaces.EbookRepository
+    converter: interfaces.EbookConverter
+    saver: interfaces.EbookSaver
+
+    def execute(self, input_dto: dto.ExtractTextInput) -> dto.ExtractTextOutput:
+        raw_book = self.repository.get_book(input_dto.identifier)
+        book = self.converter.convert(raw_book)
+        self.saver.save(input_dto.target, book)
+        return dto.ExtractTextOutput(
+            destination=input_dto.target, total_chapters=len(book.chapters)
+        )
+
+
+@dataclasses.dataclass
+class CopyEditTextUseCase:
+    repository: interfaces.ExtractedTextRepository
+    editor: interfaces.CopyEditor
+    saver: interfaces.EbookSaver
+
+    def execute(self, input_dto: dto.CopyEditInput) -> dto.CopyEditOutput:
+        book = self.repository.get_book(input_dto.identifier)
+
+        chapter_results = []
+        for chapter in book.chapters:
+            original = chapter.content
+            edited = self.editor.edit(original)
+            diff = _diff(chapter.title, original, edited) if edited != original else ""
+            chapter_results.append(
+                dto.ChapterEditDto(id=chapter.id, title=chapter.title, diff=diff)
+            )
+            chapter.content = edited
+
+        self.saver.save(input_dto.identifier, book)
+        return dto.CopyEditOutput(
+            destination=input_dto.identifier, chapters=chapter_results
+        )
+
+
+def _diff(title: str, original: str, edited: str) -> str:
+    return "\n".join(
+        difflib.unified_diff(
+            original.splitlines(),
+            edited.splitlines(),
+            fromfile=f"{title} (original)",
+            tofile=f"{title} (edited)",
+            lineterm="",
+        )
+    )
