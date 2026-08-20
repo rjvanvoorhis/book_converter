@@ -26,7 +26,7 @@ class CreateAudiobookUseCase:
         with ThreadPoolExecutor(max_workers=batch_size) as executor:
             # Submit all chapters for processing
             futures = {}
-            for chapter in chapters:
+            for index, chapter in enumerate(chapters):
                 text = chapter.content
                 if self.text_annotator is not None:
                     text = self.text_annotator.annotate(text)
@@ -36,18 +36,18 @@ class CreateAudiobookUseCase:
                     input_dto.engine,
                     input_dto.voice,
                 )
-                futures[future] = chapter
+                futures[future] = index
 
             # Collect results in chapter order
             chapter_parts = {}
             for future in as_completed(futures):
-                chapter = futures[future]
+                index = futures[future]
                 part = future.result()
-                chapter_parts[chapter] = part
+                chapter_parts[index] = part
 
         # Add parts to bundler in original chapter order
-        for chapter in chapters:
-            part = chapter_parts[chapter]
+        for index, chapter in enumerate(chapters):
+            part = chapter_parts[index]
             bundler.add_part(chapter.title, part.data)
             duration += part.duration
 
