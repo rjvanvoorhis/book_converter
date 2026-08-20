@@ -83,6 +83,7 @@ def _create_audiobook_handler(
                 target=payload["target"],
                 engine=payload.get("engine", "kokoro"),
                 voice=payload.get("voice", "af_heart"),
+                batch_size=payload.get("batch_size", 1),
             )
         )
         return _json_response(output)

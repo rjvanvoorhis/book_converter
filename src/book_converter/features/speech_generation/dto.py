@@ -7,6 +7,7 @@ class CreateAudiobookInput:
     target: str
     engine: str
     voice: str
+    batch_size: int = 1
 
 
 @dataclasses.dataclass(frozen=True)

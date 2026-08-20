@@ -35,6 +35,7 @@ class CreateAudiobookCommand:
         tts_provider: str = "pocket-tts",
         pronunciations: str | None = None,
         add_pauses: bool = False,
+        batch_size: int = 1,
     ) -> str:
         # Get the TTS provider
         if tts_provider not in self.tts_providers:
@@ -60,7 +61,11 @@ class CreateAudiobookCommand:
 
         output = use_case.execute(
             dto.CreateAudiobookInput(
-                identifier=identifier, target=target, engine=engine, voice=voice
+                identifier=identifier,
+                target=target,
+                engine=engine,
+                voice=voice,
+                batch_size=batch_size,
             )
         )
         minutes, seconds = divmod(output.total_duration, 60)
