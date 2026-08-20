@@ -1,8 +1,11 @@
 import dataclasses
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from book_converter.features.speech_generation import interfaces
 from book_converter.features.speech_generation import dto
+
+logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -22,6 +25,14 @@ class CreateAudiobookUseCase:
         # Process chapters in batches
         batch_size = max(1, input_dto.batch_size)  # Ensure batch_size is at least 1
         chapters = book.chapters
+        total = len(chapters)
+
+        logger.info(
+            "Generating audio for %d chapter(s) of '%s' (batch_size=%d)",
+            total,
+            input_dto.identifier,
+            batch_size,
+        )
 
         with ThreadPoolExecutor(max_workers=batch_size) as executor:
             # Submit all chapters for processing
@@ -40,10 +51,18 @@ class CreateAudiobookUseCase:
 
             # Collect results in chapter order
             chapter_parts = {}
+            completed = 0
             for future in as_completed(futures):
                 index = futures[future]
                 part = future.result()
                 chapter_parts[index] = part
+                completed += 1
+                logger.info(
+                    "Generated audio for chapter %d/%d: '%s'",
+                    completed,
+                    total,
+                    chapters[index].title,
+                )
 
         # Add parts to bundler in original chapter order
         for index, chapter in enumerate(chapters):
@@ -51,9 +70,15 @@ class CreateAudiobookUseCase:
             bundler.add_part(chapter.title, part.data)
             duration += part.duration
 
-        return dto.CreateAudiobookOutput(
+        output = dto.CreateAudiobookOutput(
             destination=bundler.finalize(), total_duration=duration
         )
+        logger.info(
+            "Finished audiobook '%s' (%ds total)",
+            output.destination,
+            output.total_duration,
+        )
+        return output
 
 
 @dataclasses.dataclass(frozen=True)
