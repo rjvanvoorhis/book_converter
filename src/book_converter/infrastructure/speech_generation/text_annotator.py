@@ -33,3 +33,37 @@ def build_from_pronunciations_file(pronunciations_path: str) -> CompositeTextAnn
             pause_text_annotator.PauseTextAnnotator(),
         ]
     )
+
+
+def build_text_annotator(
+    pronunciations_path: str | None = None,
+    add_pauses: bool = False,
+) -> interfaces.TextAnnotator:
+    """Build a text annotator based on optional configurations.
+
+    Args:
+        pronunciations_path: Path to a JSON file with pronunciation dictionary.
+                           If None, pronunciation annotation is disabled.
+        add_pauses: If True, enable pause annotations.
+
+    Returns:
+        A TextAnnotator (PassthroughTextAnnotator if no annotators, CompositeTextAnnotator otherwise).
+    """
+    annotators: list[interfaces.TextAnnotator] = []
+
+    if pronunciations_path is not None:
+        with open(pronunciations_path, encoding="utf-8") as f:
+            pronunciations = json.load(f)
+        annotators.append(
+            pronunciation_text_annotator.PronunciationTextAnnotator(
+                pronunciations=pronunciations
+            )
+        )
+
+    if add_pauses:
+        annotators.append(pause_text_annotator.PauseTextAnnotator())
+
+    if not annotators:
+        return PassthroughTextAnnotator()
+
+    return CompositeTextAnnotator(annotators=annotators)
