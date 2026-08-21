@@ -1,20 +1,31 @@
 import dataclasses
 import json
+import logging
 import re
+import time
 
 import requests
 
 from book_converter.features.text_extraction import entities
 from book_converter.infrastructure.text_extraction import html_text
 
+logger = logging.getLogger(__name__)
+
 _SERIES_ID = re.compile(r"/series/(\d+)")
 _WORK_ID = re.compile(r"/works/(\d+)")
+
+# Transient upstream failures worth retrying: standard 5xx plus Cloudflare's
+# extended error range (521-530), which AO3 surfaces when its origin is briefly
+# unreachable even though the site is otherwise up.
+_RETRYABLE_STATUS_CODES = {500, 502, 503, 504, *range(520, 531)}
 
 
 @dataclasses.dataclass(frozen=True)
 class AO3EbookRepository:
     base_url: str = "https://archiveofourown.org"
     timeout: float = 60.0
+    max_retries: int = 3
+    retry_backoff_seconds: float = 2.0
 
     def get_book(self, identifier: str) -> entities.RawBook:
         kind, value = _parse_identifier(identifier)
@@ -31,9 +42,7 @@ class AO3EbookRepository:
         return entities.RawBook(format="ao3", data=_encode(payload))
 
     def _get_series(self, series_id: str) -> entities.RawBook:
-        response = requests.get(
-            f"{self.base_url}/series/{series_id}", timeout=self.timeout
-        )
+        response = self._get(f"{self.base_url}/series/{series_id}")
         if response.status_code == 404:
             raise ValueError(f"Could not find series '{series_id}'")
         response.raise_for_status()
@@ -53,16 +62,38 @@ class AO3EbookRepository:
         return entities.RawBook(format="ao3", data=_encode(payload))
 
     def _fetch_work_html(self, work_id: str) -> str:
-        response = requests.get(
+        response = self._get(
             f"{self.base_url}/works/{work_id}",
             params={"view_adult": "true", "view_full_work": "true"},
-            timeout=self.timeout,
         )
         if response.status_code == 404:
             raise ValueError(f"Could not find work '{work_id}'")
         response.raise_for_status()
         response.encoding = "utf-8"
         return response.text
+
+    def _get(self, url: str, params: dict | None = None) -> requests.Response:
+        attempts = max(1, self.max_retries)
+        for attempt in range(1, attempts + 1):
+            try:
+                response = requests.get(url, params=params, timeout=self.timeout)
+            except requests.RequestException:
+                if attempt == attempts:
+                    raise
+                logger.warning(
+                    "Request to '%s' failed (attempt %d/%d), retrying...",
+                    url, attempt, attempts,
+                )
+            else:
+                if response.status_code not in _RETRYABLE_STATUS_CODES or attempt == attempts:
+                    return response
+                logger.warning(
+                    "Request to '%s' returned %d (attempt %d/%d), retrying...",
+                    url, response.status_code, attempt, attempts,
+                )
+            time.sleep(self.retry_backoff_seconds * attempt)
+
+        raise AssertionError("unreachable")
 
 
 def _encode(payload: dict) -> bytes:
