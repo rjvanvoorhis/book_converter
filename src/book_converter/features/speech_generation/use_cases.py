@@ -1,5 +1,6 @@
 import dataclasses
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from book_converter.features.speech_generation import interfaces
@@ -17,15 +18,9 @@ class CreateAudiobookUseCase:
 
     def execute(self, input_dto: dto.CreateAudiobookInput) -> dto.CreateAudiobookOutput:
         book = self.book_repository.get_book(input_dto.identifier)
-        bundler = self.bundle_initializer.create(
-            input_dto.target, metadata=book.metadata
-        )
-        duration = 0
-
-        # Process chapters in batches
-        batch_size = max(1, input_dto.batch_size)  # Ensure batch_size is at least 1
         chapters = book.chapters
         total = len(chapters)
+        batch_size = max(1, input_dto.batch_size)
 
         logger.info(
             "Generating audio for %d chapter(s) of '%s' (batch_size=%d)",
@@ -34,8 +29,27 @@ class CreateAudiobookUseCase:
             batch_size,
         )
 
+        # Generate audio for all chapters
+        chapter_parts = self._generate_chapter_audio(
+            chapters, input_dto, batch_size
+        )
+
+        # Split into chunks if requested
+        if input_dto.chapters_per_chunk is not None:
+            return self._create_chunked_audiobooks(
+                book, chapters, chapter_parts, input_dto
+            )
+        else:
+            return self._create_single_audiobook(book, chapters, chapter_parts, input_dto)
+
+    def _generate_chapter_audio(
+        self,
+        chapters: list,
+        input_dto: dto.CreateAudiobookInput,
+        batch_size: int,
+    ) -> dict[int, "SpeechResult"]:
+        """Generate audio for all chapters and return them indexed by chapter index."""
         with ThreadPoolExecutor(max_workers=batch_size) as executor:
-            # Submit all chapters for processing
             futures = {}
             for index, chapter in enumerate(chapters):
                 text = chapter.content
@@ -49,7 +63,6 @@ class CreateAudiobookUseCase:
                 )
                 futures[future] = index
 
-            # Collect results in chapter order
             chapter_parts = {}
             completed = 0
             for future in as_completed(futures):
@@ -60,25 +73,94 @@ class CreateAudiobookUseCase:
                 logger.info(
                     "Generated audio for chapter %d/%d: '%s'",
                     completed,
-                    total,
+                    len(chapters),
                     chapters[index].title,
                 )
 
-        # Add parts to bundler in original chapter order
+        return chapter_parts
+
+    def _create_single_audiobook(
+        self,
+        book,
+        chapters: list,
+        chapter_parts: dict[int, "SpeechResult"],
+        input_dto: dto.CreateAudiobookInput,
+    ) -> dto.CreateAudiobookOutput:
+        """Create a single audiobook from all chapters."""
+        bundler = self.bundle_initializer.create(
+            input_dto.target, metadata=book.metadata
+        )
+        duration = 0
+
         for index, chapter in enumerate(chapters):
             part = chapter_parts[index]
             bundler.add_part(chapter.title, part.data)
             duration += part.duration
 
-        output = dto.CreateAudiobookOutput(
-            destination=bundler.finalize(), total_duration=duration
-        )
+        destination = bundler.finalize()
+        logger.info("Finished audiobook '%s' (%ds total)", destination, duration)
+        return dto.CreateAudiobookOutput(destinations=[destination], total_duration=duration)
+
+    def _create_chunked_audiobooks(
+        self,
+        book,
+        chapters: list,
+        chapter_parts: dict[int, "SpeechResult"],
+        input_dto: dto.CreateAudiobookInput,
+    ) -> dto.CreateAudiobookOutput:
+        """Create multiple audiobook files, chunked by chapter count."""
+        chapters_per_chunk = input_dto.chapters_per_chunk
+        destinations = []
+        total_duration = 0
+
+        # Split target path to create numbered outputs
+        target_path = input_dto.target
+        base, ext = os.path.splitext(target_path)
+
+        num_chunks = (len(chapters) + chapters_per_chunk - 1) // chapters_per_chunk
         logger.info(
-            "Finished audiobook '%s' (%ds total)",
-            output.destination,
-            output.total_duration,
+            "Creating %d audiobook chunk(s), %d chapters per chunk",
+            num_chunks,
+            chapters_per_chunk,
         )
-        return output
+
+        for chunk_idx in range(num_chunks):
+            start_idx = chunk_idx * chapters_per_chunk
+            end_idx = min(start_idx + chapters_per_chunk, len(chapters))
+            chunk_chapters = chapters[start_idx:end_idx]
+
+            # Create target path for this chunk
+            if num_chunks > 1:
+                chunk_target = f"{base}-part-{chunk_idx + 1}{ext}"
+            else:
+                chunk_target = target_path
+
+            bundler = self.bundle_initializer.create(
+                chunk_target, metadata=book.metadata
+            )
+            chunk_duration = 0
+
+            for local_idx, chapter in enumerate(chunk_chapters):
+                global_idx = start_idx + local_idx
+                part = chapter_parts[global_idx]
+                bundler.add_part(chapter.title, part.data)
+                chunk_duration += part.duration
+
+            destination = bundler.finalize()
+            destinations.append(destination)
+            total_duration += chunk_duration
+            logger.info(
+                "Finished audiobook chunk %d/%d: '%s' (%ds)",
+                chunk_idx + 1,
+                num_chunks,
+                destination,
+                chunk_duration,
+            )
+
+        logger.info("Finished all audiobook chunks (%ds total)", total_duration)
+        return dto.CreateAudiobookOutput(
+            destinations=destinations, total_duration=total_duration
+        )
 
 
 @dataclasses.dataclass(frozen=True)

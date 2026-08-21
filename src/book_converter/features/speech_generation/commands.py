@@ -36,6 +36,7 @@ class CreateAudiobookCommand:
         pronunciations: str | None = None,
         add_pauses: bool = False,
         batch_size: int = 1,
+        chapters_per_chunk: int | None = None,
     ) -> str:
         # Get the TTS provider
         if tts_provider not in self.tts_providers:
@@ -66,10 +67,15 @@ class CreateAudiobookCommand:
                 engine=engine,
                 voice=voice,
                 batch_size=batch_size,
+                chapters_per_chunk=chapters_per_chunk,
             )
         )
         minutes, seconds = divmod(output.total_duration, 60)
-        return f"Created {output.destination} ({minutes}m{seconds:02d}s)"
+        if len(output.destinations) == 1:
+            return f"Created {output.destinations[0]} ({minutes}m{seconds:02d}s)"
+        else:
+            files_str = ", ".join(output.destinations)
+            return f"Created {len(output.destinations)} audiobook files ({minutes}m{seconds:02d}s total): {files_str}"
 
 
 @dataclasses.dataclass(frozen=True)

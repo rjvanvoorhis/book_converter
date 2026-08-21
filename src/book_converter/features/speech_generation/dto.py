@@ -8,11 +8,12 @@ class CreateAudiobookInput:
     engine: str
     voice: str
     batch_size: int = 1
+    chapters_per_chunk: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)
 class CreateAudiobookOutput:
-    destination: str
+    destinations: list[str]
     total_duration: int
 
 

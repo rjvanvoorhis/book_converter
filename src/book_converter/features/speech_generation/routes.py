@@ -84,6 +84,7 @@ def _create_audiobook_handler(
                 engine=payload.get("engine", "kokoro"),
                 voice=payload.get("voice", "af_heart"),
                 batch_size=payload.get("batch_size", 1),
+                chapters_per_chunk=payload.get("chapters_per_chunk"),
             )
         )
         return _json_response(output)
