@@ -24,41 +24,50 @@ class Ao3HtmlConverter:
 
         payload = json.loads(raw_book.data.decode("utf-8"))
         works = [_parse_work(entry["html"]) for entry in payload["works"]]
+        series_title = payload.get("series_title")
         multi_work = len(works) > 1
+        position_width = max(2, len(str(len(works))))
 
-        book = core_entities.Book(
-            metadata=_build_metadata(works, payload.get("series_title"))
-        )
+        book = core_entities.Book(metadata=_build_metadata(works, series_title))
 
         order = 0
-        for work in works:
+        parts = []
+        for index, work in enumerate(works):
+            position = index + 1 if multi_work else None
+            work_metadata = _work_metadata(work, position, position_width)
+            part_chapters = []
             for chapter_title, content in work.chapters:
                 if not content:
                     continue
-                book.add_chapter(
-                    core_entities.Chapter(
-                        id=core_entities.ChapterId(order),
-                        title=_chapter_display_title(work, chapter_title, multi_work),
-                        content=content,
-                        order=order,
-                    )
+                chapter = core_entities.Chapter(
+                    id=core_entities.ChapterId(order),
+                    title=chapter_title or work.title,
+                    content=content,
+                    order=order,
                 )
+                book.add_chapter(chapter)
+                part_chapters.append(chapter)
                 order += 1
+            parts.append(core_entities.BookPart(metadata=work_metadata, chapters=part_chapters))
 
         if not book.chapters:
             raise ValueError("Could not find any chapter content in the AO3 work")
 
+        if multi_work:
+            book.parts = [part for part in parts if part.chapters]
+
         return book
 
 
-def _chapter_display_title(
-    work: _ParsedWork, chapter_title: str | None, multi_work: bool
-) -> str:
-    if chapter_title is None:
-        return work.title
-    if multi_work:
-        return f"{work.title}: {chapter_title}"
-    return chapter_title
+def _work_metadata(
+    work: _ParsedWork, position: int | None, position_width: int
+) -> core_entities.BookMetadata:
+    title = work.title
+    if position is not None:
+        title = f"Book {str(position).zfill(position_width)} - {title}"
+    return core_entities.BookMetadata(
+        title=title, author=work.author, language=work.language, identifier=None
+    )
 
 
 def _build_metadata(

@@ -1,12 +1,15 @@
 import dataclasses
 import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from book_converter.features.speech_generation import interfaces
 from book_converter.features.speech_generation import dto
 
 logger = logging.getLogger(__name__)
+
+_UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
 @dataclasses.dataclass(frozen=True)
@@ -33,6 +36,13 @@ class CreateAudiobookUseCase:
         chapter_parts = self._generate_chapter_audio(
             chapters, input_dto, batch_size
         )
+
+        # A book made of multiple works (e.g. an AO3 series) gets one file per part
+        parts = book.get_parts()
+        if len(parts) > 1:
+            return self._create_audiobooks_per_part(
+                parts, chapters, chapter_parts, input_dto
+            )
 
         # Split into chunks if requested
         if input_dto.chapters_per_chunk is not None:
@@ -78,6 +88,44 @@ class CreateAudiobookUseCase:
                 )
 
         return chapter_parts
+
+    def _create_audiobooks_per_part(
+        self,
+        parts: list,
+        chapters: list,
+        chapter_parts: dict[int, "SpeechResult"],
+        input_dto: dto.CreateAudiobookInput,
+    ) -> dto.CreateAudiobookOutput:
+        """Create one audiobook file per part (e.g. one per work in a series)."""
+        index_by_chapter_id = {chapter.id: index for index, chapter in enumerate(chapters)}
+        target_dir = input_dto.target
+        destinations = []
+        total_duration = 0
+
+        for part in parts:
+            file_name = f"{_safe_filename(part.metadata.title)}.m4b"
+            part_target = os.path.join(target_dir, file_name)
+            bundler = self.bundle_initializer.create(part_target, metadata=part.metadata)
+            part_duration = 0
+
+            for chapter in part.chapters:
+                speech = chapter_parts[index_by_chapter_id[chapter.id]]
+                bundler.add_part(chapter.title, speech.data)
+                part_duration += speech.duration
+
+            destination = bundler.finalize()
+            destinations.append(destination)
+            total_duration += part_duration
+            logger.info(
+                "Finished audiobook '%s' (%ds)", destination, part_duration
+            )
+
+        logger.info(
+            "Finished all %d part audiobook(s) (%ds total)", len(parts), total_duration
+        )
+        return dto.CreateAudiobookOutput(
+            destinations=destinations, total_duration=total_duration
+        )
 
     def _create_single_audiobook(
         self,
@@ -161,6 +209,11 @@ class CreateAudiobookUseCase:
         return dto.CreateAudiobookOutput(
             destinations=destinations, total_duration=total_duration
         )
+
+
+def _safe_filename(title: str) -> str:
+    cleaned = _UNSAFE_FILENAME_CHARS.sub(" ", title).strip().rstrip(".")
+    return " ".join(cleaned.split()) or "untitled"
 
 
 @dataclasses.dataclass(frozen=True)

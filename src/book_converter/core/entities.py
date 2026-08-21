@@ -24,10 +24,17 @@ class Chapter:
         return len(self.content.split())
 
 
+@dataclasses.dataclass(frozen=True)
+class BookPart:
+    metadata: BookMetadata
+    chapters: list[Chapter]
+
+
 @dataclasses.dataclass
 class Book:
     metadata: BookMetadata
     chapters: list[Chapter] = dataclasses.field(default_factory=list)
+    parts: list[BookPart] | None = None
 
     def add_chapter(self, chapter: Chapter) -> None:
         if any(existing.id == chapter.id for existing in self.chapters):
@@ -44,3 +51,8 @@ class Book:
             if chapter.id == id:
                 return chapter
         return None
+
+    def get_parts(self) -> list[BookPart]:
+        if self.parts is not None:
+            return self.parts
+        return [BookPart(metadata=self.metadata, chapters=self.chapters)]
