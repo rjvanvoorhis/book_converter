@@ -23,7 +23,9 @@ from book_converter.infrastructure.speech_generation import ffmpeg_bundler
 from book_converter.infrastructure.speech_generation import kokoro_tts_provider
 from book_converter.infrastructure.speech_generation import pocket_tts_provider
 from book_converter.infrastructure.speech_generation import text_annotator
+from book_converter.infrastructure.text_extraction import ao3_converter
 from book_converter.infrastructure.text_extraction import ao3_repository
+from book_converter.infrastructure.text_extraction import dispatching_converter
 from book_converter.infrastructure.text_extraction import epub_converter
 from book_converter.infrastructure.text_extraction import extracted_text_saver
 from book_converter.infrastructure.text_extraction import filesystem_repository
@@ -40,7 +42,9 @@ class Container:
 
 
 def build_container() -> Container:
-    ebook_converter = epub_converter.EpubConverter()
+    ebook_converter = dispatching_converter.DispatchingEbookConverter(
+        converters=[epub_converter.EpubConverter(), ao3_converter.Ao3HtmlConverter()]
+    )
     ebook_repositories = {
         "file": filesystem_repository.FilesystemEbookRepository(),
         "ao3": ao3_repository.AO3EbookRepository(),

@@ -32,6 +32,21 @@ def parse_html(markup: str | bytes) -> lxml_html.HtmlElement:
     return lxml_html.fromstring(markup)
 
 
+def element_classes(element: lxml_html.HtmlElement) -> set[str]:
+    return set((element.get("class") or "").split())
+
+
+def find_by_classes(
+    tree: lxml_html.HtmlElement, tag: str, *classes: str
+) -> list[lxml_html.HtmlElement]:
+    required = set(classes)
+    return [
+        element
+        for element in tree.iter(tag)
+        if required.issubset(element_classes(element))
+    ]
+
+
 def extract_heading(tree: lxml_html.HtmlElement) -> str | None:
     heading = next(tree.iter(*_HEADING_TAGS), None)
     if heading is None:

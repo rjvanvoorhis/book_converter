@@ -2,7 +2,7 @@ import typing
 import dataclasses
 
 
-type BookFormat = typing.Literal["epub", "mobi"]
+type BookFormat = typing.Literal["epub", "mobi", "ao3"]
 
 
 @dataclasses.dataclass
