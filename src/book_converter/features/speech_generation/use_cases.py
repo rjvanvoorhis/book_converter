@@ -21,36 +21,21 @@ class CreateAudiobookUseCase:
 
     def execute(self, input_dto: dto.CreateAudiobookInput) -> dto.CreateAudiobookOutput:
         book = self.book_repository.get_book(input_dto.identifier)
-        chapters = book.chapters
-        total = len(chapters)
         batch_size = max(1, input_dto.batch_size)
 
-        logger.info(
-            "Generating audio for %d chapter(s) of '%s' (batch_size=%d)",
-            total,
-            input_dto.identifier,
-            batch_size,
-        )
-
-        # Generate audio for all chapters
-        chapter_parts = self._generate_chapter_audio(
-            chapters, input_dto, batch_size
-        )
-
-        # A book made of multiple works (e.g. an AO3 series) gets one file per part
+        # A book made of multiple works (e.g. an AO3 series) gets one file per part.
+        # Each part is generated and written to disk before moving to the next, so a
+        # crash partway through a long series only costs the part in flight, and a
+        # re-run can skip parts that already finished.
         parts = book.get_parts()
         if len(parts) > 1:
-            return self._create_audiobooks_per_part(
-                parts, chapters, chapter_parts, input_dto
-            )
+            return self._create_audiobooks_per_part(parts, input_dto, batch_size)
 
         # Split into chunks if requested
         if input_dto.chapters_per_chunk is not None:
-            return self._create_chunked_audiobooks(
-                book, chapters, chapter_parts, input_dto
-            )
+            return self._create_chunked_audiobooks(book, input_dto, batch_size)
         else:
-            return self._create_single_audiobook(book, chapters, chapter_parts, input_dto)
+            return self._create_single_audiobook(book, input_dto, batch_size)
 
     def _generate_chapter_audio(
         self,
@@ -92,24 +77,41 @@ class CreateAudiobookUseCase:
     def _create_audiobooks_per_part(
         self,
         parts: list,
-        chapters: list,
-        chapter_parts: dict[int, "SpeechResult"],
         input_dto: dto.CreateAudiobookInput,
+        batch_size: int,
     ) -> dto.CreateAudiobookOutput:
-        """Create one audiobook file per part (e.g. one per work in a series)."""
-        index_by_chapter_id = {chapter.id: index for index, chapter in enumerate(chapters)}
+        """Create one audiobook file per part (e.g. one per work in a series).
+
+        Each part's audio is generated and bundled to its final destination before
+        the next part starts, so completed parts survive a crash/OOM later in the
+        run and a re-run can skip parts whose output already exists.
+        """
         target_dir = input_dto.target
         destinations = []
         total_duration = 0
 
-        for part in parts:
+        for part_number, part in enumerate(parts, start=1):
             file_name = f"{_safe_filename(part.metadata.title)}.m4b"
             part_target = os.path.join(target_dir, file_name)
+
+            if os.path.exists(part_target):
+                logger.info(
+                    "Skipping part %d/%d '%s': '%s' already exists",
+                    part_number, len(parts), part.metadata.title, part_target,
+                )
+                destinations.append(part_target)
+                continue
+
+            logger.info(
+                "Generating part %d/%d '%s' (%d chapter(s), batch_size=%d)",
+                part_number, len(parts), part.metadata.title, len(part.chapters), batch_size,
+            )
+            chapter_parts = self._generate_chapter_audio(part.chapters, input_dto, batch_size)
+
             bundler = self.bundle_initializer.create(part_target, metadata=part.metadata)
             part_duration = 0
-
-            for chapter in part.chapters:
-                speech = chapter_parts[index_by_chapter_id[chapter.id]]
+            for chapter_index, chapter in enumerate(part.chapters):
+                speech = chapter_parts[chapter_index]
                 bundler.add_part(chapter.title, speech.data)
                 part_duration += speech.duration
 
@@ -130,11 +132,13 @@ class CreateAudiobookUseCase:
     def _create_single_audiobook(
         self,
         book,
-        chapters: list,
-        chapter_parts: dict[int, "SpeechResult"],
         input_dto: dto.CreateAudiobookInput,
+        batch_size: int,
     ) -> dto.CreateAudiobookOutput:
         """Create a single audiobook from all chapters."""
+        chapters = book.chapters
+        chapter_parts = self._generate_chapter_audio(chapters, input_dto, batch_size)
+
         bundler = self.bundle_initializer.create(
             input_dto.target, metadata=book.metadata
         )
@@ -152,11 +156,16 @@ class CreateAudiobookUseCase:
     def _create_chunked_audiobooks(
         self,
         book,
-        chapters: list,
-        chapter_parts: dict[int, "SpeechResult"],
         input_dto: dto.CreateAudiobookInput,
+        batch_size: int,
     ) -> dto.CreateAudiobookOutput:
-        """Create multiple audiobook files, chunked by chapter count."""
+        """Create multiple audiobook files, chunked by chapter count.
+
+        Each chunk is generated and bundled to its final destination before the
+        next chunk starts, mirroring the per-part flow so a long run stays
+        crash-safe and resumable.
+        """
+        chapters = book.chapters
         chapters_per_chunk = input_dto.chapters_per_chunk
         destinations = []
         total_duration = 0
@@ -183,14 +192,23 @@ class CreateAudiobookUseCase:
             else:
                 chunk_target = target_path
 
+            if os.path.exists(chunk_target):
+                logger.info(
+                    "Skipping chunk %d/%d: '%s' already exists",
+                    chunk_idx + 1, num_chunks, chunk_target,
+                )
+                destinations.append(chunk_target)
+                continue
+
+            chapter_parts = self._generate_chapter_audio(chunk_chapters, input_dto, batch_size)
+
             bundler = self.bundle_initializer.create(
                 chunk_target, metadata=book.metadata
             )
             chunk_duration = 0
 
             for local_idx, chapter in enumerate(chunk_chapters):
-                global_idx = start_idx + local_idx
-                part = chapter_parts[global_idx]
+                part = chapter_parts[local_idx]
                 bundler.add_part(chapter.title, part.data)
                 chunk_duration += part.duration
 

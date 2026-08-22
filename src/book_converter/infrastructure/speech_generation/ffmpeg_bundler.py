@@ -1,7 +1,6 @@
 import dataclasses
 import pathlib
 import shutil
-import tempfile
 import typing
 
 from book_converter.core import entities as core_entities
@@ -13,8 +12,18 @@ class FfmpegBundleInitializer:
     def create(
         self, target: str, metadata: core_entities.BookMetadata | None
     ) -> "FfmpegBundler":
-        work_dir = pathlib.Path(tempfile.mkdtemp(prefix="book_converter_bundle_"))
-        return FfmpegBundler(target=pathlib.Path(target), metadata=metadata, work_dir=work_dir)
+        target_path = pathlib.Path(target)
+        # Own work dir next to the real output rather than the OS temp dir: it's on
+        # the same drive as the target, survives long enough to inspect after a
+        # crash, and isn't subject to third-party temp-cleanup tools deleting it
+        # mid-run. Any leftovers from a previous crashed attempt for this exact
+        # target are stale (the target was never confirmed written) and safe to
+        # discard before starting over.
+        work_dir = target_path.parent / f".{target_path.stem}.bundle-tmp"
+        if work_dir.exists():
+            shutil.rmtree(work_dir)
+        work_dir.mkdir(parents=True, exist_ok=True)
+        return FfmpegBundler(target=target_path, metadata=metadata, work_dir=work_dir)
 
 
 @dataclasses.dataclass
@@ -59,6 +68,13 @@ class FfmpegBundler:
             ]
         )
 
+        if not self.target.exists() or self.target.stat().st_size == 0:
+            raise RuntimeError(
+                f"ffmpeg reported success but produced no output at '{self.target}'"
+            )
+
+        # Only clean up the work dir once the real output is confirmed on disk, so
+        # a failure never leaves us with neither the target nor the intermediates.
         shutil.rmtree(self.work_dir, ignore_errors=True)
         return str(self.target)
 
