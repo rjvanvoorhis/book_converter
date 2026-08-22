@@ -19,7 +19,11 @@ class FfmpegBundleInitializer:
         # mid-run. Any leftovers from a previous crashed attempt for this exact
         # target are stale (the target was never confirmed written) and safe to
         # discard before starting over.
-        work_dir = target_path.parent / f".{target_path.stem}.bundle-tmp"
+        # Resolved to absolute: ffmpeg's concat demuxer resolves relative paths in
+        # the list file relative to the list file's own directory (not the process
+        # cwd), so a relative work_dir here would make it double up the path and
+        # fail to find the chapter files.
+        work_dir = (target_path.parent / f".{target_path.stem}.bundle-tmp").resolve()
         if work_dir.exists():
             shutil.rmtree(work_dir)
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -49,12 +53,19 @@ class FfmpegBundler:
             encoding="utf-8",
         )
 
+        total_duration = sum(duration for _, _, duration in self._parts)
+
         intermediate = self.work_dir / "intermediate.m4a"
         ffmpeg_support.run_ffmpeg(
             [
                 "-f", "concat", "-safe", "0", "-i", str(concat_list),
-                "-c:a", "aac", "-b:a", "64k", "-vn", str(intermediate),
-            ]
+                # Spoken-word narration doesn't need music-grade quality: mono at
+                # 48k is indistinguishable from the prior 64k stereo for speech
+                # and meaningfully smaller.
+                "-c:a", "aac", "-b:a", "48k", "-ac", "1", "-vn", str(intermediate),
+            ],
+            total_duration=total_duration,
+            label=f"Encoding '{self.target.name}'",
         )
 
         chapters_file = self.work_dir / "chapters.txt"
