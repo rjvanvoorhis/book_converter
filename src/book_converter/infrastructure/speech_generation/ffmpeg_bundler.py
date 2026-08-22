@@ -1,4 +1,5 @@
 import dataclasses
+import hashlib
 import pathlib
 import shutil
 import typing
@@ -12,18 +13,23 @@ class FfmpegBundleInitializer:
     def create(
         self, target: str, metadata: core_entities.BookMetadata | None
     ) -> "FfmpegBundler":
-        target_path = pathlib.Path(target)
-        # Own work dir next to the real output rather than the OS temp dir: it's on
-        # the same drive as the target, survives long enough to inspect after a
-        # crash, and isn't subject to third-party temp-cleanup tools deleting it
-        # mid-run. Any leftovers from a previous crashed attempt for this exact
-        # target are stale (the target was never confirmed written) and safe to
-        # discard before starting over.
         # Resolved to absolute: ffmpeg's concat demuxer resolves relative paths in
         # the list file relative to the list file's own directory (not the process
         # cwd), so a relative work_dir here would make it double up the path and
         # fail to find the chapter files.
-        work_dir = (target_path.parent / f".{target_path.stem}.bundle-tmp").resolve()
+        target_path = pathlib.Path(target).resolve()
+        # Own work dir next to the real output rather than the OS temp dir: it's on
+        # the same drive as the target, survives long enough to inspect after a
+        # crash, and isn't subject to third-party temp-cleanup tools deleting it
+        # mid-run. Named from a hash of the target path rather than the human title:
+        # titles can contain characters (quotes, unicode, ...) that are valid on
+        # the filesystem but trip up other tools' own path syntax (as ffmpeg's
+        # concat list quoting did), so intermediate plumbing paths stay boring and
+        # ASCII-only. Hashing (not e.g. a running counter) keeps it deterministic
+        # per target, which is what lets a crashed attempt's leftovers be found
+        # and cleared before starting over.
+        digest = hashlib.sha1(str(target_path).encode()).hexdigest()[:12]
+        work_dir = target_path.parent / f".bundle-tmp-{digest}"
         if work_dir.exists():
             shutil.rmtree(work_dir)
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -49,7 +55,7 @@ class FfmpegBundler:
 
         concat_list = self.work_dir / "concat_list.txt"
         concat_list.write_text(
-            "\n".join(f"file '{path.as_posix()}'" for _, path, _ in self._parts) + "\n",
+            "\n".join(f"file {_quote_concat_path(path.as_posix())}" for _, path, _ in self._parts) + "\n",
             encoding="utf-8",
         )
 
@@ -88,6 +94,17 @@ class FfmpegBundler:
         # a failure never leaves us with neither the target nor the intermediates.
         shutil.rmtree(self.work_dir, ignore_errors=True)
         return str(self.target)
+
+
+def _quote_concat_path(path: str) -> str:
+    """Quote a path for ffmpeg's concat demuxer list, escaping literal single quotes.
+
+    The concat format takes the whole `'...'` span literally with no escape
+    character recognized inside it, so a literal quote (e.g. a title like
+    "Can't") has to close the quoted span, insert an escaped quote outside of
+    it, then reopen quoting — the same trick POSIX shells use.
+    """
+    return "'" + path.replace("'", "'\\''") + "'"
 
 
 def _ffmetadata(
