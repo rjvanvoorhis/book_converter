@@ -39,10 +39,11 @@ class Ao3HtmlConverter:
             for chapter_title, content in work.chapters:
                 if not content:
                     continue
+                title = chapter_title or work.title
                 chapter = core_entities.Chapter(
                     id=core_entities.ChapterId(order),
-                    title=chapter_title or work.title,
-                    content=content,
+                    title=title,
+                    content=f"{title}\n\n{content}",
                     order=order,
                 )
                 book.add_chapter(chapter)
@@ -167,4 +168,6 @@ def _chapter_content(chapter_div) -> str:
     ]
     if not articles:
         return ""
-    return html_text.extract_body_text(articles[0])
+    article = articles[0]
+    html_text.strip_elements_by_class(article, "landmark")
+    return html_text.extract_body_text(article)

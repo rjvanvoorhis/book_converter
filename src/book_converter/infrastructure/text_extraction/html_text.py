@@ -27,6 +27,27 @@ _BLOCK_TAGS = (
 
 _HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
 
+_CHARACTER_HARMONIZATION = str.maketrans(
+    {
+        "‘": "'",  # ‘ left single quote
+        "’": "'",  # ’ right single quote
+        "‚": "'",  # ‚ single low-9 quote
+        "“": '"',  # “ left double quote
+        "”": '"',  # ” right double quote
+        "„": '"',  # „ double low-9 quote
+        "–": "-",  # – en dash
+        "—": "-",  # — em dash
+        "…": "...",  # … ellipsis
+        " ": " ",  # non-breaking space
+        "​": "",  # zero-width space
+        "‌": "",  # zero-width non-joiner
+        "‍": "",  # zero-width joiner
+        "﻿": "",  # byte order mark / zero-width no-break space
+    }
+)
+
+_SPACE_BEFORE_PUNCTUATION = re.compile(r"[ \t]+([,.;:!?])")
+
 
 def parse_html(markup: str | bytes) -> lxml_html.HtmlElement:
     return lxml_html.fromstring(markup)
@@ -54,6 +75,17 @@ def extract_heading(tree: lxml_html.HtmlElement) -> str | None:
     return normalize_text(heading.text_content()) or None
 
 
+def strip_elements_by_class(tree: lxml_html.HtmlElement, *classes: str) -> None:
+    """Remove elements (and their subtrees) carrying all of the given classes.
+
+    Used to drop screen-reader-only landmarks (e.g. AO3's "Chapter Text"
+    heading) that would otherwise be read out as part of the body text.
+    """
+    for element in list(tree.iter()):
+        if set(classes).issubset(element_classes(element)):
+            element.drop_tree()
+
+
 def extract_body_text(tree: lxml_html.HtmlElement) -> str:
     for br in tree.iter("br"):
         br.tail = "\n" + (br.tail or "")
@@ -65,7 +97,7 @@ def extract_body_text(tree: lxml_html.HtmlElement) -> str:
 
 
 def normalize_text(raw_text: str) -> str:
-    normalized = unicodedata.normalize("NFKC", raw_text)
+    normalized = unicodedata.normalize("NFKC", raw_text).translate(_CHARACTER_HARMONIZATION)
     lines = [re.sub(r"[ \t]+", " ", line).strip() for line in normalized.splitlines()]
 
     paragraphs: list[str] = []
@@ -79,4 +111,4 @@ def normalize_text(raw_text: str) -> str:
     if current:
         paragraphs.append(" ".join(current))
 
-    return "\n\n".join(paragraphs)
+    return _SPACE_BEFORE_PUNCTUATION.sub(r"\1", "\n\n".join(paragraphs))
