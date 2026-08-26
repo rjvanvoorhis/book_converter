@@ -22,6 +22,7 @@ from book_converter.infrastructure.speech_generation import (
 from book_converter.infrastructure.speech_generation import ffmpeg_bundler
 from book_converter.infrastructure.speech_generation import kokoro_tts_provider
 from book_converter.infrastructure.speech_generation import pocket_tts_provider
+from book_converter.infrastructure.speech_generation import quote_dialogue_segmenter
 from book_converter.infrastructure.speech_generation import text_annotator
 from book_converter.infrastructure.text_extraction import ao3_converter
 from book_converter.infrastructure.text_extraction import ao3_repository
@@ -102,6 +103,10 @@ def build_container() -> Container:
     # Initialize FFmpeg bundler
     bundle_initializer = ffmpeg_bundler.FfmpegBundleInitializer()
 
+    # Quote-detection dialogue segmenter (phase 1 of speaker attribution): tags
+    # detected dialogue with entities.UNKNOWN_SPEAKER rather than a real name.
+    dialogue_segmenter = quote_dialogue_segmenter.QuoteDialogueSegmenter()
+
     # Create default use cases (these won't be used directly but kept for compatibility)
     default_tts_provider = tts_providers["pocket-tts"]
     default_text_annotator = text_annotator.build_text_annotator()
@@ -114,6 +119,7 @@ def build_container() -> Container:
             tts_provider=default_tts_provider,
             bundle_initializer=bundle_initializer,
             text_annotator=default_text_annotator,
+            dialogue_segmenter=dialogue_segmenter,
         )
 
     create_audiobook_by_source = {
@@ -140,6 +146,7 @@ def build_container() -> Container:
                 tts_providers,
                 book_repositories_by_source,
                 bundle_initializer,
+                dialogue_segmenter,
             ),
         ],
         routes=[
@@ -154,6 +161,7 @@ def build_container() -> Container:
                 tts_providers,
                 book_repositories_by_source,
                 bundle_initializer,
+                dialogue_segmenter,
             ),
         ],
     )

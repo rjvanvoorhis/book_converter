@@ -4,12 +4,17 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from book_converter.features.speech_generation import entities
 from book_converter.features.speech_generation import interfaces
 from book_converter.features.speech_generation import dto
 
 logger = logging.getLogger(__name__)
 
 _UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+# Gap inserted between a chapter's narration/dialogue segments. ffmpeg's concat
+# demuxer otherwise abuts separately-synthesized clips with no gap at all.
+_SEGMENT_GAP_SECONDS = 0.4
 
 
 @dataclasses.dataclass(frozen=True)
@@ -18,6 +23,7 @@ class CreateAudiobookUseCase:
     tts_provider: interfaces.TTSProvider
     bundle_initializer: interfaces.BundleInitializer
     text_annotator: interfaces.TextAnnotator | None
+    dialogue_segmenter: interfaces.DialogueSegmenter
 
     def execute(self, input_dto: dto.CreateAudiobookInput) -> dto.CreateAudiobookOutput:
         book = self.book_repository.get_book(input_dto.identifier)
@@ -42,37 +48,51 @@ class CreateAudiobookUseCase:
         chapters: list,
         input_dto: dto.CreateAudiobookInput,
         batch_size: int,
-    ) -> dict[int, "SpeechResult"]:
-        """Generate audio for all chapters and return them indexed by chapter index."""
+    ) -> dict[int, list[entities.SpeechResult]]:
+        """Generate audio for all chapters, split into paragraph-level segments,
+        and return results indexed by chapter index.
+
+        Segmenting always runs, not just when `dialogue_voice` is set: chunking
+        text at paragraph boundaries (particularly around dialogue) measurably
+        improves output quality with some TTS models, independent of whether a
+        second voice is in play. Without `dialogue_voice`, dialogue segments
+        just fall back to the regular narrator `voice`, so a chapter with no
+        dialogue at all still collapses to one segment via the segmenter's own
+        narration-merging (identical to one TTS call per chapter, as before).
+        """
+        chapter_segments: dict[int, list[entities.DialogueSegment]] = {}
+        for index, chapter in enumerate(chapters):
+            text = chapter.content
+            if self.text_annotator is not None:
+                text = self.text_annotator.annotate(text)
+            chapter_segments[index] = self.dialogue_segmenter.segment(text)
+
         with ThreadPoolExecutor(max_workers=batch_size) as executor:
             futures = {}
-            for index, chapter in enumerate(chapters):
-                text = chapter.content
-                if self.text_annotator is not None:
-                    text = self.text_annotator.annotate(text)
-                future = executor.submit(
-                    self.tts_provider.generate,
-                    text,
-                    input_dto.engine,
-                    input_dto.voice,
-                )
-                futures[future] = index
+            for chapter_index, segments in chapter_segments.items():
+                for segment_index, segment in enumerate(segments):
+                    voice = (
+                        input_dto.voice
+                        if segment.speaker is None
+                        else (input_dto.dialogue_voice or input_dto.voice)
+                    )
+                    future = executor.submit(
+                        self.tts_provider.generate, segment.text, input_dto.engine, voice
+                    )
+                    futures[future] = (chapter_index, segment_index)
 
-            chapter_parts = {}
-            completed = 0
+            results: dict[int, dict[int, entities.SpeechResult]] = {}
             for future in as_completed(futures):
-                index = futures[future]
-                part = future.result()
-                chapter_parts[index] = part
-                completed += 1
-                logger.info(
-                    "Generated audio for chapter %d/%d: '%s'",
-                    completed,
-                    len(chapters),
-                    chapters[index].title,
+                chapter_index, segment_index = futures[future]
+                results.setdefault(chapter_index, {})[segment_index] = future.result()
+                _log_segment_generated(
+                    chapters, chapter_index, segment_index, len(chapter_segments[chapter_index])
                 )
 
-        return chapter_parts
+        return {
+            chapter_index: [segment_results[i] for i in range(len(segment_results))]
+            for chapter_index, segment_results in results.items()
+        }
 
     def _create_audiobooks_per_part(
         self,
@@ -111,9 +131,9 @@ class CreateAudiobookUseCase:
             bundler = self.bundle_initializer.create(part_target, metadata=part.metadata)
             part_duration = 0
             for chapter_index, chapter in enumerate(part.chapters):
-                speech = chapter_parts[chapter_index]
-                bundler.add_part(chapter.title, speech.data)
-                part_duration += speech.duration
+                part_duration += _bundle_chapter_segments(
+                    bundler, chapter.title, chapter_parts[chapter_index]
+                )
 
             destination = bundler.finalize()
             destinations.append(destination)
@@ -145,9 +165,7 @@ class CreateAudiobookUseCase:
         duration = 0
 
         for index, chapter in enumerate(chapters):
-            part = chapter_parts[index]
-            bundler.add_part(chapter.title, part.data)
-            duration += part.duration
+            duration += _bundle_chapter_segments(bundler, chapter.title, chapter_parts[index])
 
         destination = bundler.finalize()
         logger.info("Finished audiobook '%s' (%ds total)", destination, duration)
@@ -208,9 +226,9 @@ class CreateAudiobookUseCase:
             chunk_duration = 0
 
             for local_idx, chapter in enumerate(chunk_chapters):
-                part = chapter_parts[local_idx]
-                bundler.add_part(chapter.title, part.data)
-                chunk_duration += part.duration
+                chunk_duration += _bundle_chapter_segments(
+                    bundler, chapter.title, chapter_parts[local_idx]
+                )
 
             destination = bundler.finalize()
             destinations.append(destination)
@@ -226,6 +244,36 @@ class CreateAudiobookUseCase:
         logger.info("Finished all audiobook chunks (%ds total)", total_duration)
         return dto.CreateAudiobookOutput(
             destinations=destinations, total_duration=total_duration
+        )
+
+
+def _bundle_chapter_segments(
+    bundler: interfaces.Bundler, title: str, segments: list[entities.SpeechResult]
+) -> float:
+    """Add one chapter's segments to the bundler, gapped and grouped under a
+    single chapter marker, and return the chapter's total duration."""
+    duration = 0.0
+    for segment_index, speech in enumerate(segments):
+        if segment_index > 0:
+            bundler.add_silence(_SEGMENT_GAP_SECONDS)
+        bundler.add_part(title, speech.data, new_chapter=(segment_index == 0))
+        duration += speech.duration
+    return duration
+
+
+def _log_segment_generated(
+    chapters: list, chapter_index: int, segment_index: int, segment_count: int
+) -> None:
+    if segment_count == 1:
+        logger.info(
+            "Generated audio for chapter %d/%d: '%s'",
+            chapter_index + 1, len(chapters), chapters[chapter_index].title,
+        )
+    else:
+        logger.info(
+            "Generated audio for chapter %d/%d segment %d/%d: '%s'",
+            chapter_index + 1, len(chapters), segment_index + 1, segment_count,
+            chapters[chapter_index].title,
         )
 
 

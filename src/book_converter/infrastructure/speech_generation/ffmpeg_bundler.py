@@ -36,18 +36,39 @@ class FfmpegBundleInitializer:
         return FfmpegBundler(target=target_path, metadata=metadata, work_dir=work_dir)
 
 
+@dataclasses.dataclass(frozen=True)
+class _Part:
+    title: str
+    path: pathlib.Path
+    duration: float
+    new_chapter: bool
+
+
 @dataclasses.dataclass
 class FfmpegBundler:
     target: pathlib.Path
     metadata: core_entities.BookMetadata | None
     work_dir: pathlib.Path
-    _parts: list[tuple[str, pathlib.Path, float]] = dataclasses.field(default_factory=list)
+    _parts: list[_Part] = dataclasses.field(default_factory=list)
 
-    def add_part(self, title: str, part: typing.IO) -> None:
+    def add_part(self, title: str, part: typing.IO, new_chapter: bool = True) -> None:
         part_path = self.work_dir / f"part_{len(self._parts):04d}"
         part_path.write_bytes(part.read())
         duration = ffmpeg_support.probe_duration_seconds(part_path)
-        self._parts.append((title, part_path, duration))
+        self._parts.append(
+            _Part(title=title, path=part_path, duration=duration, new_chapter=new_chapter)
+        )
+
+    def add_silence(self, seconds: float) -> None:
+        """Insert a short silent gap, e.g. between a chapter's narration/dialogue
+        segments — ffmpeg's concat demuxer otherwise abuts clips with no gap,
+        which sounds glued together when segments came from separate TTS calls.
+        """
+        part_path = self.work_dir / f"part_{len(self._parts):04d}"
+        ffmpeg_support.generate_silence(seconds, part_path)
+        self._parts.append(
+            _Part(title="", path=part_path, duration=seconds, new_chapter=False)
+        )
 
     def finalize(self) -> str:
         if not self._parts:
@@ -55,11 +76,11 @@ class FfmpegBundler:
 
         concat_list = self.work_dir / "concat_list.txt"
         concat_list.write_text(
-            "\n".join(f"file {_quote_concat_path(path.as_posix())}" for _, path, _ in self._parts) + "\n",
+            "\n".join(f"file {_quote_concat_path(part.path.as_posix())}" for part in self._parts) + "\n",
             encoding="utf-8",
         )
 
-        total_duration = sum(duration for _, _, duration in self._parts)
+        total_duration = sum(part.duration for part in self._parts)
 
         intermediate = self.work_dir / "intermediate.m4a"
         ffmpeg_support.run_ffmpeg(
@@ -107,25 +128,39 @@ def _quote_concat_path(path: str) -> str:
     return "'" + path.replace("'", "'\\''") + "'"
 
 
-def _ffmetadata(
-    metadata: core_entities.BookMetadata | None,
-    parts: list[tuple[str, pathlib.Path, float]],
-) -> str:
+def _ffmetadata(metadata: core_entities.BookMetadata | None, parts: list[_Part]) -> str:
     lines = [";FFMETADATA1"]
     if metadata is not None:
         lines.append(f"title={_escape(metadata.title)}")
         if metadata.author:
             lines.append(f"artist={_escape(metadata.author)}")
 
+    # Group parts into chapters: a run of parts starting at each new_chapter=True
+    # entry (or the very first part, regardless of its flag) and extending
+    # through any new_chapter=False continuation entries that follow it. This
+    # keeps one [CHAPTER] marker per real book chapter even when a chapter was
+    # synthesized as several segments (e.g. narration/dialogue turns).
+    chapters: list[tuple[str, int, int]] = []
     cursor_ms = 0
-    for title, _path, duration in parts:
-        start_ms = cursor_ms
-        cursor_ms += round(duration * 1000)
+    chapter_title: str | None = None
+    chapter_start_ms = 0
+    for part in parts:
+        if part.new_chapter and chapter_title is not None:
+            chapters.append((chapter_title, chapter_start_ms, cursor_ms))
+            chapter_title = None
+        if chapter_title is None:
+            chapter_title = part.title
+            chapter_start_ms = cursor_ms
+        cursor_ms += round(part.duration * 1000)
+    if chapter_title is not None:
+        chapters.append((chapter_title, chapter_start_ms, cursor_ms))
+
+    for title, start_ms, end_ms in chapters:
         lines.append("")
         lines.append("[CHAPTER]")
         lines.append("TIMEBASE=1/1000")
         lines.append(f"START={start_ms}")
-        lines.append(f"END={cursor_ms}")
+        lines.append(f"END={end_ms}")
         lines.append(f"title={_escape(title)}")
 
     return "\n".join(lines) + "\n"

@@ -9,6 +9,7 @@ class CreateAudiobookInput:
     voice: str
     batch_size: int = 1
     chapters_per_chunk: int | None = None
+    dialogue_voice: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

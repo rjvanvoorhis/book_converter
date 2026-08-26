@@ -33,6 +33,18 @@ def probe_duration_seconds_from_bytes(data: bytes) -> float:
         return probe_duration_seconds(path)
 
 
+def generate_silence(seconds: float, output_path: pathlib.Path) -> None:
+    # Explicit output format since output_path has no extension for ffmpeg to
+    # infer a container from (matching the extension-less part_NNNN files
+    # elsewhere in the bundle work dir).
+    run_ffmpeg(
+        [
+            "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+            "-t", str(seconds), "-f", "wav", str(output_path),
+        ]
+    )
+
+
 def run_ffmpeg(args: list[str], *, total_duration: float | None = None, label: str | None = None) -> None:
     """Run ffmpeg, logging periodic progress if `total_duration` (seconds) is known."""
     process = subprocess.Popen(

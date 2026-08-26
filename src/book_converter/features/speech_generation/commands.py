@@ -16,6 +16,7 @@ class CreateAudiobookCommand:
     tts_providers: dict[str, interfaces.TTSProvider]
     book_repositories_by_source: dict[str, interfaces.BookRepository]
     bundle_initializer: interfaces.BundleInitializer
+    dialogue_segmenter: interfaces.DialogueSegmenter
 
     @property
     def name(self) -> str:
@@ -37,6 +38,7 @@ class CreateAudiobookCommand:
         add_pauses: bool = False,
         batch_size: int = 1,
         chapters_per_chunk: int | None = None,
+        dialogue_voice: str | None = None,
     ) -> str:
         # Get the TTS provider
         if tts_provider not in self.tts_providers:
@@ -58,6 +60,7 @@ class CreateAudiobookCommand:
             tts_provider=selected_tts_provider,
             bundle_initializer=self.bundle_initializer,
             text_annotator=text_annotator,
+            dialogue_segmenter=self.dialogue_segmenter,
         )
 
         output = use_case.execute(
@@ -68,6 +71,7 @@ class CreateAudiobookCommand:
                 voice=voice,
                 batch_size=batch_size,
                 chapters_per_chunk=chapters_per_chunk,
+                dialogue_voice=dialogue_voice,
             )
         )
         minutes, seconds = divmod(output.total_duration, 60)
@@ -120,6 +124,7 @@ def build_commands(
     tts_providers: dict[str, interfaces.TTSProvider],
     book_repositories_by_source: dict[str, interfaces.BookRepository],
     bundle_initializer: interfaces.BundleInitializer,
+    dialogue_segmenter: interfaces.DialogueSegmenter,
 ) -> list[cli.Command]:
     return [
         CreateAudiobookCommand(
@@ -128,6 +133,7 @@ def build_commands(
             tts_providers=tts_providers,
             book_repositories_by_source=book_repositories_by_source,
             bundle_initializer=bundle_initializer,
+            dialogue_segmenter=dialogue_segmenter,
         ),
         ListVoicesCommand(use_case=list_voices, tts_providers=tts_providers),
     ]

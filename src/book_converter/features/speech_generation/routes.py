@@ -15,6 +15,7 @@ def build_routes(
     tts_providers: dict[str, interfaces.TTSProvider],
     book_repositories_by_source: dict[str, interfaces.BookRepository],
     bundle_initializer: interfaces.BundleInitializer,
+    dialogue_segmenter: interfaces.DialogueSegmenter,
 ) -> list[api.Route]:
     return [
         api.Route(
@@ -25,6 +26,7 @@ def build_routes(
                 build_text_annotator,
                 tts_providers,
                 bundle_initializer,
+                dialogue_segmenter,
             ),
         ),
         api.Route(
@@ -39,6 +41,7 @@ def _create_audiobook_handler(
     build_text_annotator: interfaces.TextAnnotatorFactory,
     tts_providers: dict[str, interfaces.TTSProvider],
     bundle_initializer: interfaces.BundleInitializer,
+    dialogue_segmenter: interfaces.DialogueSegmenter,
 ) -> api.Handler:
     def handle(request: api.Request) -> api.Response:
         payload = json.loads(request.content)
@@ -75,6 +78,7 @@ def _create_audiobook_handler(
             tts_provider=tts_provider,
             bundle_initializer=bundle_initializer,
             text_annotator=text_annotator,
+            dialogue_segmenter=dialogue_segmenter,
         )
 
         output = use_case.execute(
@@ -85,6 +89,7 @@ def _create_audiobook_handler(
                 voice=payload.get("voice", "af_heart"),
                 batch_size=payload.get("batch_size", 1),
                 chapters_per_chunk=payload.get("chapters_per_chunk"),
+                dialogue_voice=payload.get("dialogue_voice"),
             )
         )
         return _json_response(output)
