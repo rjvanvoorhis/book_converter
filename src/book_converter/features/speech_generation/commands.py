@@ -74,7 +74,7 @@ class CreateAudiobookCommand:
                 dialogue_voice=dialogue_voice,
             )
         )
-        minutes, seconds = divmod(output.total_duration, 60)
+        minutes, seconds = map(int, divmod(output.total_duration, 60))
         if len(output.destinations) == 1:
             return f"Created {output.destinations[0]} ({minutes}m{seconds:02d}s)"
         else:

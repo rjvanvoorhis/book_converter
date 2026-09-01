@@ -15,7 +15,9 @@ class EpubConverter:
 
     def convert(self, raw_book: entities.RawBook) -> core_entities.Book:
         if raw_book.format != "epub":
-            raise ValueError(f"EpubConverter does not support format '{raw_book.format}'")
+            raise ValueError(
+                f"EpubConverter does not support format '{raw_book.format}'"
+            )
 
         source = epub.read_epub(io.BytesIO(raw_book.data))
         book = core_entities.Book(metadata=_extract_metadata(source))

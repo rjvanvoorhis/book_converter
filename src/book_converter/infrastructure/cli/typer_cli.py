@@ -11,9 +11,7 @@ class TyperCli:
         self._app = typer.Typer()
 
     def add_command(self, command: cli.Command) -> typing.Self:
-        self._app.command(name=command.name, help=command.description)(
-            _wrap(command)
-        )
+        self._app.command(name=command.name, help=command.description)(_wrap(command))
         return self
 
     def add_commands(self, commands: list[cli.Command]) -> typing.Self:

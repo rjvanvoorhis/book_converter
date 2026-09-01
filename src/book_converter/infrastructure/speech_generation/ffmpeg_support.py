@@ -39,13 +39,22 @@ def generate_silence(seconds: float, output_path: pathlib.Path) -> None:
     # elsewhere in the bundle work dir).
     run_ffmpeg(
         [
-            "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
-            "-t", str(seconds), "-f", "wav", str(output_path),
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=24000:cl=mono",
+            "-t",
+            str(seconds),
+            "-f",
+            "wav",
+            str(output_path),
         ]
     )
 
 
-def run_ffmpeg(args: list[str], *, total_duration: float | None = None, label: str | None = None) -> None:
+def run_ffmpeg(
+    args: list[str], *, total_duration: float | None = None, label: str | None = None
+) -> None:
     """Run ffmpeg, logging periodic progress if `total_duration` (seconds) is known."""
     process = subprocess.Popen(
         ["ffmpeg", "-y", "-v", "error", "-nostats", "-progress", "pipe:1", *args],
@@ -75,7 +84,10 @@ def run_ffmpeg(args: list[str], *, total_duration: float | None = None, label: s
             last_logged_percent = percent
             logger.info(
                 "%s: %d%% (%.0fs/%.0fs)",
-                label or "ffmpeg", percent, processed_seconds, total_duration,
+                label or "ffmpeg",
+                percent,
+                processed_seconds,
+                total_duration,
             )
 
     process.wait()

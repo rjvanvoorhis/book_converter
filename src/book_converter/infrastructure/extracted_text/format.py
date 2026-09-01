@@ -40,7 +40,9 @@ def read_book(folder: str) -> core_entities.Book:
     source = pathlib.Path(folder)
     manifest_path = source / _MANIFEST_FILENAME
     if not manifest_path.is_file():
-        raise FileNotFoundError(f"No extracted-text manifest found at '{manifest_path}'")
+        raise FileNotFoundError(
+            f"No extracted-text manifest found at '{manifest_path}'"
+        )
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 

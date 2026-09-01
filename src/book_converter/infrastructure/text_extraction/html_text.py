@@ -97,7 +97,9 @@ def extract_body_text(tree: lxml_html.HtmlElement) -> str:
 
 
 def normalize_text(raw_text: str) -> str:
-    normalized = unicodedata.normalize("NFKC", raw_text).translate(_CHARACTER_HARMONIZATION)
+    normalized = unicodedata.normalize("NFKC", raw_text).translate(
+        _CHARACTER_HARMONIZATION
+    )
     lines = [re.sub(r"[ \t]+", " ", line).strip() for line in normalized.splitlines()]
 
     paragraphs: list[str] = []

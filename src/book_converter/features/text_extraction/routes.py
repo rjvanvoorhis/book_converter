@@ -17,7 +17,8 @@ def build_routes(
 ) -> list[api.Route]:
     return [
         api.Route(
-            rule="/books/{identifier}", handler=_load_ebook_handler(load_ebook_by_source)
+            rule="/books/{identifier}",
+            handler=_load_ebook_handler(load_ebook_by_source),
         ),
         api.Route(
             rule="/books/{identifier}/chapters/{chapter_id}",
@@ -37,11 +38,13 @@ def build_routes(
 
 
 def _load_ebook_handler(
-    use_cases_by_source: dict[str, use_cases.LoadEbookUseCase]
+    use_cases_by_source: dict[str, use_cases.LoadEbookUseCase],
 ) -> api.Handler:
     def handle(request: api.Request) -> api.Response:
         (identifier,) = request.params
-        use_case = _resolve(use_cases_by_source, _query_value(request, "source", "file"))
+        use_case = _resolve(
+            use_cases_by_source, _query_value(request, "source", "file")
+        )
         output = use_case.execute(dto.LoadEbookInput(identifier=identifier))
         return _json_response(output)
 
@@ -49,11 +52,13 @@ def _load_ebook_handler(
 
 
 def _extract_chapter_handler(
-    use_cases_by_source: dict[str, use_cases.ExtractChapterUseCase]
+    use_cases_by_source: dict[str, use_cases.ExtractChapterUseCase],
 ) -> api.Handler:
     def handle(request: api.Request) -> api.Response:
         identifier, chapter_id = request.params
-        use_case = _resolve(use_cases_by_source, _query_value(request, "source", "file"))
+        use_case = _resolve(
+            use_cases_by_source, _query_value(request, "source", "file")
+        )
         output = use_case.execute(
             dto.ExtractChapterInput(identifier=identifier, chapter_id=int(chapter_id))
         )
@@ -63,7 +68,7 @@ def _extract_chapter_handler(
 
 
 def _extract_text_handler(
-    use_cases_by_source: dict[str, use_cases.ExtractTextUseCase]
+    use_cases_by_source: dict[str, use_cases.ExtractTextUseCase],
 ) -> api.Handler:
     def handle(request: api.Request) -> api.Response:
         payload = json.loads(request.content)
@@ -79,7 +84,7 @@ def _extract_text_handler(
 
 
 def _copyedit_handler(
-    use_cases_by_editor: dict[str, use_cases.CopyEditTextUseCase]
+    use_cases_by_editor: dict[str, use_cases.CopyEditTextUseCase],
 ) -> api.Handler:
     def handle(request: api.Request) -> api.Response:
         payload = json.loads(request.content)

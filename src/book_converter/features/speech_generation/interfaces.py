@@ -25,7 +25,9 @@ class DialogueSegmenter(typing.Protocol):
 
 
 class TextAnnotatorFactory(typing.Protocol):
-    def __call__(self, pronunciations_path: str) -> TextAnnotator: ...
+    def __call__(
+        self, pronunciations_path: str | None = None, add_pauses: bool = False
+    ) -> TextAnnotator: ...
 
 
 class BookRepository(typing.Protocol):
@@ -33,7 +35,9 @@ class BookRepository(typing.Protocol):
 
 
 class Bundler(typing.Protocol):
-    def add_part(self, title: str, part: typing.IO, new_chapter: bool = True) -> None: ...
+    def add_part(
+        self, title: str, part: typing.IO, new_chapter: bool = True
+    ) -> None: ...
 
     def add_silence(self, seconds: float) -> None: ...
 

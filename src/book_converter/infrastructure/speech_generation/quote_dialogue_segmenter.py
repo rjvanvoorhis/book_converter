@@ -32,8 +32,12 @@ class QuoteDialogueSegmenter:
         for paragraph in text.split("\n\n"):
             stripped = paragraph.strip()
             if stripped:
-                speaker = entities.UNKNOWN_SPEAKER if _QUOTE_SPAN.search(stripped) else None
-                segments.append(entities.DialogueSegment(text=stripped, speaker=speaker))
+                speaker = (
+                    entities.UNKNOWN_SPEAKER if _QUOTE_SPAN.search(stripped) else None
+                )
+                segments.append(
+                    entities.DialogueSegment(text=stripped, speaker=speaker)
+                )
         return _merge_adjacent_narration(segments)
 
 

@@ -20,7 +20,9 @@ class Ao3HtmlConverter:
 
     def convert(self, raw_book: entities.RawBook) -> core_entities.Book:
         if raw_book.format != "ao3":
-            raise ValueError(f"Ao3HtmlConverter does not support format '{raw_book.format}'")
+            raise ValueError(
+                f"Ao3HtmlConverter does not support format '{raw_book.format}'"
+            )
 
         payload = json.loads(raw_book.data.decode("utf-8"))
         works = [_parse_work(entry["html"]) for entry in payload["works"]]
@@ -49,7 +51,9 @@ class Ao3HtmlConverter:
                 book.add_chapter(chapter)
                 part_chapters.append(chapter)
                 order += 1
-            parts.append(core_entities.BookPart(metadata=work_metadata, chapters=part_chapters))
+            parts.append(
+                core_entities.BookPart(metadata=work_metadata, chapters=part_chapters)
+            )
 
         if not book.chapters:
             raise ValueError("Could not find any chapter content in the AO3 work")
@@ -146,9 +150,7 @@ def _chapter_title(chapter_div) -> str | None:
     prefaces = [
         element
         for element in chapter_div.iter("div")
-        if {"chapter", "preface", "group"}.issubset(
-            html_text.element_classes(element)
-        )
+        if {"chapter", "preface", "group"}.issubset(html_text.element_classes(element))
     ]
     if not prefaces:
         return None
@@ -164,7 +166,9 @@ def _chapter_title(chapter_div) -> str | None:
 
 def _chapter_content(chapter_div) -> str:
     articles = [
-        element for element in chapter_div.iter("div") if element.get("role") == "article"
+        element
+        for element in chapter_div.iter("div")
+        if element.get("role") == "article"
     ]
     if not articles:
         return ""

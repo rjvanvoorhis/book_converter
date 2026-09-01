@@ -82,14 +82,22 @@ class AO3EbookRepository:
                     raise
                 logger.warning(
                     "Request to '%s' failed (attempt %d/%d), retrying...",
-                    url, attempt, attempts,
+                    url,
+                    attempt,
+                    attempts,
                 )
             else:
-                if response.status_code not in _RETRYABLE_STATUS_CODES or attempt == attempts:
+                if (
+                    response.status_code not in _RETRYABLE_STATUS_CODES
+                    or attempt == attempts
+                ):
                     return response
                 logger.warning(
                     "Request to '%s' returned %d (attempt %d/%d), retrying...",
-                    url, response.status_code, attempt, attempts,
+                    url,
+                    response.status_code,
+                    attempt,
+                    attempts,
                 )
             time.sleep(self.retry_backoff_seconds * attempt)
 
@@ -117,7 +125,9 @@ def _parse_identifier(identifier: str) -> tuple[str, str]:
     if identifier.isdigit():
         return "work", identifier
 
-    raise ValueError(f"Could not determine an AO3 work or series id from '{identifier}'")
+    raise ValueError(
+        f"Could not determine an AO3 work or series id from '{identifier}'"
+    )
 
 
 def _parse_series_page(markup: str) -> tuple[str | None, list[str]]:

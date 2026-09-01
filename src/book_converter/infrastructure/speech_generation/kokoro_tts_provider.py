@@ -14,13 +14,21 @@ class KokoroTtsProvider:
     timeout: float = 300.0
 
     def get_engine_profiles(self) -> list[entities.EngineProfile]:
-        return [entities.EngineProfile(id="kokoro", description="Local Kokoro TTS engine")]
+        return [
+            entities.EngineProfile(id="kokoro", description="Local Kokoro TTS engine")
+        ]
 
-    def get_voice_profiles(self, engine: entities.EngineId) -> list[entities.VoiceProfile]:
-        response = requests.get(f"{self.base_url}/v1/audio/voices", timeout=self.timeout)
+    def get_voice_profiles(
+        self, engine: entities.EngineId
+    ) -> list[entities.VoiceProfile]:
+        response = requests.get(
+            f"{self.base_url}/v1/audio/voices", timeout=self.timeout
+        )
         response.raise_for_status()
         return [
-            entities.VoiceProfile(id=entities.VoiceId(voice["id"]), description=voice.get("name"))
+            entities.VoiceProfile(
+                id=entities.VoiceId(voice["id"]), description=voice.get("name")
+            )
             for voice in response.json()["voices"]
         ]
 

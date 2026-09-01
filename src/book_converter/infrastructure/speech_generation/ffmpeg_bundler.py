@@ -56,7 +56,9 @@ class FfmpegBundler:
         part_path.write_bytes(part.read())
         duration = ffmpeg_support.probe_duration_seconds(part_path)
         self._parts.append(
-            _Part(title=title, path=part_path, duration=duration, new_chapter=new_chapter)
+            _Part(
+                title=title, path=part_path, duration=duration, new_chapter=new_chapter
+            )
         )
 
     def add_silence(self, seconds: float) -> None:
@@ -76,7 +78,11 @@ class FfmpegBundler:
 
         concat_list = self.work_dir / "concat_list.txt"
         concat_list.write_text(
-            "\n".join(f"file {_quote_concat_path(part.path.as_posix())}" for part in self._parts) + "\n",
+            "\n".join(
+                f"file {_quote_concat_path(part.path.as_posix())}"
+                for part in self._parts
+            )
+            + "\n",
             encoding="utf-8",
         )
 
@@ -85,24 +91,47 @@ class FfmpegBundler:
         intermediate = self.work_dir / "intermediate.m4a"
         ffmpeg_support.run_ffmpeg(
             [
-                "-f", "concat", "-safe", "0", "-i", str(concat_list),
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_list),
                 # Spoken-word narration doesn't need music-grade quality: mono at
                 # 48k is indistinguishable from the prior 64k stereo for speech
                 # and meaningfully smaller.
-                "-c:a", "aac", "-b:a", "48k", "-ac", "1", "-vn", str(intermediate),
+                "-c:a",
+                "aac",
+                "-b:a",
+                "48k",
+                "-ac",
+                "1",
+                "-vn",
+                str(intermediate),
             ],
             total_duration=total_duration,
             label=f"Encoding '{self.target.name}'",
         )
 
         chapters_file = self.work_dir / "chapters.txt"
-        chapters_file.write_text(_ffmetadata(self.metadata, self._parts), encoding="utf-8")
+        chapters_file.write_text(
+            _ffmetadata(self.metadata, self._parts), encoding="utf-8"
+        )
 
         self.target.parent.mkdir(parents=True, exist_ok=True)
         ffmpeg_support.run_ffmpeg(
             [
-                "-i", str(intermediate), "-i", str(chapters_file),
-                "-map_metadata", "1", "-codec", "copy", "-f", "mp4", str(self.target),
+                "-i",
+                str(intermediate),
+                "-i",
+                str(chapters_file),
+                "-map_metadata",
+                "1",
+                "-codec",
+                "copy",
+                "-f",
+                "mp4",
+                str(self.target),
             ]
         )
 

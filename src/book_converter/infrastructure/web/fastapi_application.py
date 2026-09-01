@@ -53,7 +53,9 @@ async def _to_generic_request(
     files: dict[str, list[typing.IO]] = {}
 
     content_type = request.headers.get("content-type", "")
-    if content_type.startswith(("multipart/form-data", "application/x-www-form-urlencoded")):
+    if content_type.startswith(
+        ("multipart/form-data", "application/x-www-form-urlencoded")
+    ):
         form_data = await request.form()
         for key in form_data:
             for value in form_data.getlist(key):

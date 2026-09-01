@@ -77,7 +77,10 @@ class CreateAudiobookUseCase:
                         else (input_dto.dialogue_voice or input_dto.voice)
                     )
                     future = executor.submit(
-                        self.tts_provider.generate, segment.text, input_dto.engine, voice
+                        self.tts_provider.generate,
+                        segment.text,
+                        input_dto.engine,
+                        voice,
                     )
                     futures[future] = (chapter_index, segment_index)
 
@@ -86,7 +89,10 @@ class CreateAudiobookUseCase:
                 chapter_index, segment_index = futures[future]
                 results.setdefault(chapter_index, {})[segment_index] = future.result()
                 _log_segment_generated(
-                    chapters, chapter_index, segment_index, len(chapter_segments[chapter_index])
+                    chapters,
+                    chapter_index,
+                    segment_index,
+                    len(chapter_segments[chapter_index]),
                 )
 
         return {
@@ -117,18 +123,29 @@ class CreateAudiobookUseCase:
             if os.path.exists(part_target):
                 logger.info(
                     "Skipping part %d/%d '%s': '%s' already exists",
-                    part_number, len(parts), part.metadata.title, part_target,
+                    part_number,
+                    len(parts),
+                    part.metadata.title,
+                    part_target,
                 )
                 destinations.append(part_target)
                 continue
 
             logger.info(
                 "Generating part %d/%d '%s' (%d chapter(s), batch_size=%d)",
-                part_number, len(parts), part.metadata.title, len(part.chapters), batch_size,
+                part_number,
+                len(parts),
+                part.metadata.title,
+                len(part.chapters),
+                batch_size,
             )
-            chapter_parts = self._generate_chapter_audio(part.chapters, input_dto, batch_size)
+            chapter_parts = self._generate_chapter_audio(
+                part.chapters, input_dto, batch_size
+            )
 
-            bundler = self.bundle_initializer.create(part_target, metadata=part.metadata)
+            bundler = self.bundle_initializer.create(
+                part_target, metadata=part.metadata
+            )
             part_duration = 0
             for chapter_index, chapter in enumerate(part.chapters):
                 part_duration += _bundle_chapter_segments(
@@ -138,9 +155,7 @@ class CreateAudiobookUseCase:
             destination = bundler.finalize()
             destinations.append(destination)
             total_duration += part_duration
-            logger.info(
-                "Finished audiobook '%s' (%ds)", destination, part_duration
-            )
+            logger.info("Finished audiobook '%s' (%ds)", destination, part_duration)
 
         logger.info(
             "Finished all %d part audiobook(s) (%ds total)", len(parts), total_duration
@@ -165,11 +180,15 @@ class CreateAudiobookUseCase:
         duration = 0
 
         for index, chapter in enumerate(chapters):
-            duration += _bundle_chapter_segments(bundler, chapter.title, chapter_parts[index])
+            duration += _bundle_chapter_segments(
+                bundler, chapter.title, chapter_parts[index]
+            )
 
         destination = bundler.finalize()
         logger.info("Finished audiobook '%s' (%ds total)", destination, duration)
-        return dto.CreateAudiobookOutput(destinations=[destination], total_duration=duration)
+        return dto.CreateAudiobookOutput(
+            destinations=[destination], total_duration=duration
+        )
 
     def _create_chunked_audiobooks(
         self,
@@ -213,12 +232,16 @@ class CreateAudiobookUseCase:
             if os.path.exists(chunk_target):
                 logger.info(
                     "Skipping chunk %d/%d: '%s' already exists",
-                    chunk_idx + 1, num_chunks, chunk_target,
+                    chunk_idx + 1,
+                    num_chunks,
+                    chunk_target,
                 )
                 destinations.append(chunk_target)
                 continue
 
-            chapter_parts = self._generate_chapter_audio(chunk_chapters, input_dto, batch_size)
+            chapter_parts = self._generate_chapter_audio(
+                chunk_chapters, input_dto, batch_size
+            )
 
             bundler = self.bundle_initializer.create(
                 chunk_target, metadata=book.metadata
@@ -267,12 +290,17 @@ def _log_segment_generated(
     if segment_count == 1:
         logger.info(
             "Generated audio for chapter %d/%d: '%s'",
-            chapter_index + 1, len(chapters), chapters[chapter_index].title,
+            chapter_index + 1,
+            len(chapters),
+            chapters[chapter_index].title,
         )
     else:
         logger.info(
             "Generated audio for chapter %d/%d segment %d/%d: '%s'",
-            chapter_index + 1, len(chapters), segment_index + 1, segment_count,
+            chapter_index + 1,
+            len(chapters),
+            segment_index + 1,
+            segment_count,
             chapters[chapter_index].title,
         )
 
