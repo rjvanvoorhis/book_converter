@@ -29,8 +29,9 @@ class CreateAudiobookCommand:
     def execute(
         self,
         identifier: str,
-        target: str,
+        name: str,
         source: str = "file",
+        audiobook_folder: str = "data/audiobooks",
         engine: str = "kokoro",
         voice: str = "af_heart",
         tts_provider: str = "pocket-tts",
@@ -66,7 +67,8 @@ class CreateAudiobookCommand:
         output = use_case.execute(
             dto.CreateAudiobookInput(
                 identifier=identifier,
-                target=target,
+                name=name,
+                audiobook_folder=audiobook_folder,
                 engine=engine,
                 voice=voice,
                 batch_size=batch_size,
@@ -76,10 +78,18 @@ class CreateAudiobookCommand:
         )
         minutes, seconds = map(int, divmod(output.total_duration, 60))
         if len(output.destinations) == 1:
-            return f"Created {output.destinations[0]} ({minutes}m{seconds:02d}s)"
+            return (
+                f"Created {output.destinations[0]} ({minutes}m{seconds:02d}s), "
+                f"transcript: {output.transcripts[0]}"
+            )
         else:
             files_str = ", ".join(output.destinations)
-            return f"Created {len(output.destinations)} audiobook files ({minutes}m{seconds:02d}s total): {files_str}"
+            transcripts_str = ", ".join(output.transcripts)
+            return (
+                f"Created {len(output.destinations)} audiobook files "
+                f"({minutes}m{seconds:02d}s total): {files_str} "
+                f"(transcripts: {transcripts_str})"
+            )
 
 
 @dataclasses.dataclass(frozen=True)

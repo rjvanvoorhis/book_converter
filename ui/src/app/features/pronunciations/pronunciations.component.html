@@ -1,0 +1,142 @@
+<section class="page">
+  <h1>Pronunciation Dictionaries</h1>
+
+  <div class="folder-bar">
+    <label for="folder">Dictionary folder</label>
+    <input id="folder" type="text" [formControl]="folder" (change)="loadDictionaries()" />
+    <button type="button" (click)="loadDictionaries()" [disabled]="dictionariesLoading()">
+      {{ dictionariesLoading() ? 'Loading…' : 'Refresh' }}
+    </button>
+  </div>
+
+  @if (dictionariesError()) {
+    <p class="error">{{ dictionariesError() }}</p>
+  }
+
+  <div class="layout">
+    <div class="sidebar">
+      <button type="button" class="new-dict" (click)="startNewDictionary()">
+        + New dictionary
+      </button>
+      <ul class="dict-list">
+        @for (item of dictionaries(); track item.path) {
+          <li
+            class="dict-item"
+            [class.active]="selectedPath() === item.path"
+            (click)="openDictionary(item)"
+          >
+            {{ item.name }}
+          </li>
+        } @empty {
+          <li class="empty">No dictionaries found in this folder.</li>
+        }
+      </ul>
+    </div>
+
+    <div class="editor">
+      @if (isNewDictionary()) {
+        <div class="field">
+          <label for="newDictName">New dictionary name</label>
+          <input
+            id="newDictName"
+            type="text"
+            [formControl]="newDictName"
+            placeholder="my-characters"
+          />
+        </div>
+      } @else {
+        <h2>{{ selectedPath() }}</h2>
+      }
+
+      @if (loadError()) {
+        <p class="error">{{ loadError() }}</p>
+      }
+
+      <div class="method-toggle">
+        <span class="method-label">Method</span>
+        <label>
+          <input
+            type="radio"
+            name="method"
+            [checked]="method() === 'ipa'"
+            (change)="setMethod('ipa')"
+          />
+          IPA
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="method"
+            [checked]="method() === 'spelling'"
+            (change)="setMethod('spelling')"
+          />
+          Spelling
+        </label>
+      </div>
+
+      @if (method() === 'ipa') {
+        <div class="ipa-palette">
+          @for (group of ipaGroups; track group.label) {
+            <div class="ipa-group">
+              <span class="ipa-group-label">{{ group.label }}</span>
+              @for (symbol of group.symbols; track symbol) {
+                <button
+                  type="button"
+                  class="ipa-symbol"
+                  [disabled]="activeRowIndex() === null"
+                  (click)="insertSymbol(symbol)"
+                >
+                  {{ symbol }}
+                </button>
+              }
+            </div>
+          }
+        </div>
+        <p class="hint">
+          Click an alias's replacement box to make it active, then build its
+          pronunciation by clicking symbols (you can still type/edit the box
+          directly too).
+        </p>
+      }
+
+      <div class="aliases">
+        @for (row of aliases(); track $index) {
+          <div class="alias-row" [class.active]="activeRowIndex() === $index">
+            <input
+              type="text"
+              class="alias-key"
+              placeholder="Word to match"
+              [value]="row.key"
+              (input)="updateKey($index, $any($event.target).value)"
+            />
+            <span class="arrow">→</span>
+            <input
+              type="text"
+              class="alias-value"
+              [placeholder]="method() === 'ipa' ? 'IPA transcription' : 'Sounds-like spelling'"
+              [value]="row.value"
+              (focus)="setActiveRow($index)"
+              (input)="updateValue($index, $any($event.target).value)"
+            />
+            <button type="button" class="remove" (click)="removeAlias($index)">✕</button>
+          </div>
+        } @empty {
+          <p class="empty">No aliases yet.</p>
+        }
+      </div>
+
+      <div class="toolbar">
+        <button type="button" (click)="addAlias()">+ Add alias</button>
+        <button type="button" class="save btn-primary" [disabled]="saving()" (click)="save()">
+          {{ saving() ? 'Saving…' : 'Save dictionary' }}
+        </button>
+        @if (savedJustNow()) {
+          <span class="hint">Saved.</span>
+        }
+        @if (saveError()) {
+          <span class="error">{{ saveError() }}</span>
+        }
+      </div>
+    </div>
+  </div>
+</section>

@@ -2,7 +2,7 @@ import pathlib
 
 from book_converter.features.text_extraction import entities
 
-_SUPPORTED_FORMATS = ("epub", "mobi")
+_SUPPORTED_FORMATS = ("epub", "mobi", "azw3")
 
 
 class FilesystemEbookRepository:

@@ -1,0 +1,199 @@
+<section class="page">
+  <h1>Create Audiobook</h1>
+
+  <form [formGroup]="form" (ngSubmit)="submit()" class="form">
+    <div class="field">
+      <label for="source">Source</label>
+      <select id="source" formControlName="source">
+        @for (option of sources; track option.value) {
+          <option [value]="option.value">{{ option.label }}</option>
+        }
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="identifier">Identifier</label>
+      <div class="identifier-row">
+        <input
+          id="identifier"
+          type="text"
+          formControlName="identifier"
+          [placeholder]="identifierPlaceholder()"
+        />
+        @if (isFileSource()) {
+          <app-file-picker (fileSelected)="onFilePicked($event)"></app-file-picker>
+        }
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="name">Name</label>
+      <input id="name" type="text" formControlName="name" placeholder="My Audiobook" />
+    </div>
+
+    <div class="field">
+      <label for="audiobookFolder">Audiobook folder</label>
+      <input id="audiobookFolder" type="text" formControlName="audiobookFolder" />
+      <p class="hint">
+        A single book is saved as "&lt;name&gt;.m4b" here; a series becomes a
+        "&lt;name&gt;/" folder of per-work files.
+      </p>
+    </div>
+
+    <div class="field">
+      <label for="ttsProvider">TTS provider</label>
+      <select id="ttsProvider" formControlName="ttsProvider" (change)="onProviderChange()">
+        @for (option of ttsProviders; track option.value) {
+          <option [value]="option.value">{{ option.label }}</option>
+        }
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="engine">Engine</label>
+      <input id="engine" type="text" formControlName="engine" (change)="onEngineChange()" />
+    </div>
+
+    <div class="field">
+      <label for="voice">Voice</label>
+      <select id="voice" formControlName="voice">
+        @if (voicesLoading()) {
+          <option value="">Loading voices…</option>
+        } @else {
+          @for (voice of voices(); track voice.id) {
+            <option [value]="voice.id">{{ voice.description || voice.id }}</option>
+          }
+        }
+      </select>
+      @if (voicesError()) {
+        <p class="error">{{ voicesError() }}</p>
+      }
+    </div>
+
+    <div class="sample">
+      <div class="sample-controls">
+        <label for="sampleSentenceCount">Preview sentences</label>
+        <input
+          id="sampleSentenceCount"
+          type="number"
+          min="1"
+          formControlName="sampleSentenceCount"
+        />
+        <button type="button" [disabled]="isSampleInProgress()" (click)="generateSample()">
+          {{ sampleButtonLabel() }}
+        </button>
+        @if (isSampleInProgress()) {
+          <button type="button" class="cancel" (click)="cancelSample()">Cancel</button>
+        }
+      </div>
+      @if (isSampleInProgress()) {
+        <p class="hint">{{ sampleTask()?.message }}</p>
+      }
+      @if (sampleTask()?.status === 'cancelled') {
+        <p class="hint">Cancelled.</p>
+      }
+      @if (sampleError()) {
+        <p class="error">{{ sampleError() }}</p>
+      }
+      @if (sampleAudioUrl(); as url) {
+        <audio controls [src]="url"></audio>
+      }
+    </div>
+
+    <button type="button" class="advanced-toggle" (click)="toggleAdvanced()">
+      {{ advancedOpen() ? 'Hide' : 'Show' }} advanced options
+    </button>
+
+    @if (advancedOpen()) {
+      <div class="advanced">
+        <div class="field">
+          <label for="dialogueVoice">Dialogue voice (optional)</label>
+          <select id="dialogueVoice" formControlName="dialogueVoice">
+            <option value="">Same as narrator voice</option>
+            @for (voice of voices(); track voice.id) {
+              <option [value]="voice.id">{{ voice.description || voice.id }}</option>
+            }
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="pronunciations">Pronunciations dictionary (optional)</label>
+          <select id="pronunciations" formControlName="pronunciations">
+            <option value="">None</option>
+            @for (dict of pronunciationDicts(); track dict.path) {
+              <option [value]="dict.path">{{ dict.name }}</option>
+            }
+          </select>
+        </div>
+
+        <div class="field checkbox">
+          <label for="addPauses">
+            <input id="addPauses" type="checkbox" formControlName="addPauses" />
+            Add pauses
+          </label>
+        </div>
+
+        <div class="field">
+          <label for="batchSize">Batch size</label>
+          <input id="batchSize" type="number" min="1" formControlName="batchSize" />
+        </div>
+
+        <div class="field">
+          <label for="chaptersPerChunk">Chapters per chunk (optional)</label>
+          <input id="chaptersPerChunk" type="number" min="1" formControlName="chaptersPerChunk" />
+        </div>
+      </div>
+    }
+
+    <div class="toolbar">
+      <button
+        type="submit"
+        class="submit btn-primary"
+        [disabled]="submitting() || isTaskInProgress()"
+      >
+        {{ submitButtonLabel() }}
+      </button>
+      @if (isTaskInProgress()) {
+        <button type="button" class="cancel" (click)="cancelTask()">Cancel</button>
+      }
+    </div>
+  </form>
+
+  @if (submitError()) {
+    <p class="error">{{ submitError() }}</p>
+  }
+
+  @if (task(); as taskState) {
+    @if (taskState.status === 'pending' || taskState.status === 'running') {
+      <div class="progress">
+        <p>{{ taskState.message }}</p>
+      </div>
+    }
+
+    @if (taskState.status === 'failed') {
+      <p class="error">{{ taskState.error }}</p>
+    }
+
+    @if (taskState.status === 'cancelled') {
+      <p class="hint">Cancelled.</p>
+    }
+
+    @if (taskState.status === 'completed' && taskState.result; as created) {
+      <div class="result">
+        <h2>Done</h2>
+        <p>Total duration: {{ created.total_duration }}s</p>
+        <ul>
+          @for (destination of created.destinations; track destination) {
+            <li>{{ destination }}</li>
+          }
+        </ul>
+        <h3>Transcripts</h3>
+        <ul>
+          @for (transcript of created.transcripts; track transcript) {
+            <li>{{ transcript }}</li>
+          }
+        </ul>
+      </div>
+    }
+  }
+</section>

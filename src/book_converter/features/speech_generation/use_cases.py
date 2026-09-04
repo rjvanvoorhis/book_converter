@@ -11,6 +11,7 @@ from book_converter.features.speech_generation import dto
 logger = logging.getLogger(__name__)
 
 _UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 
 # Gap inserted between a chapter's narration/dialogue segments. ffmpeg's concat
 # demuxer otherwise abuts separately-synthesized clips with no gap at all.
@@ -25,30 +26,44 @@ class CreateAudiobookUseCase:
     text_annotator: interfaces.TextAnnotator | None
     dialogue_segmenter: interfaces.DialogueSegmenter
 
-    def execute(self, input_dto: dto.CreateAudiobookInput) -> dto.CreateAudiobookOutput:
+    def execute(
+        self,
+        input_dto: dto.CreateAudiobookInput,
+        progress: interfaces.ProgressReporter | None = None,
+    ) -> dto.CreateAudiobookOutput:
         book = self.book_repository.get_book(input_dto.identifier)
         batch_size = max(1, input_dto.batch_size)
+        name = _safe_filename(input_dto.name)
 
-        # A book made of multiple works (e.g. an AO3 series) gets one file per part.
-        # Each part is generated and written to disk before moving to the next, so a
-        # crash partway through a long series only costs the part in flight, and a
-        # re-run can skip parts that already finished.
+        # A book made of multiple works (e.g. an AO3 series) gets one file per
+        # part, collected in a folder named after the requested name. A single
+        # book instead becomes one file named after it directly.
         parts = book.get_parts()
         if len(parts) > 1:
-            return self._create_audiobooks_per_part(parts, input_dto, batch_size)
+            target_dir = os.path.join(input_dto.audiobook_folder, name)
+            return self._create_audiobooks_per_part(
+                parts, target_dir, input_dto, batch_size, progress
+            )
+
+        target = os.path.join(input_dto.audiobook_folder, f"{name}.m4b")
 
         # Split into chunks if requested
         if input_dto.chapters_per_chunk is not None:
-            return self._create_chunked_audiobooks(book, input_dto, batch_size)
+            return self._create_chunked_audiobooks(
+                book, target, input_dto, batch_size, progress
+            )
         else:
-            return self._create_single_audiobook(book, input_dto, batch_size)
+            return self._create_single_audiobook(
+                book, target, input_dto, batch_size, progress
+            )
 
     def _generate_chapter_audio(
         self,
         chapters: list,
         input_dto: dto.CreateAudiobookInput,
         batch_size: int,
-    ) -> dict[int, list[entities.SpeechResult]]:
+        progress: interfaces.ProgressReporter | None,
+    ) -> dict[int, list[tuple[entities.DialogueSegment, entities.SpeechResult]]]:
         """Generate audio for all chapters, split into paragraph-level segments,
         and return results indexed by chapter index.
 
@@ -85,26 +100,43 @@ class CreateAudiobookUseCase:
                     futures[future] = (chapter_index, segment_index)
 
             results: dict[int, dict[int, entities.SpeechResult]] = {}
-            for future in as_completed(futures):
-                chapter_index, segment_index = futures[future]
-                results.setdefault(chapter_index, {})[segment_index] = future.result()
-                _log_segment_generated(
-                    chapters,
-                    chapter_index,
-                    segment_index,
-                    len(chapter_segments[chapter_index]),
-                )
+            try:
+                for future in as_completed(futures):
+                    chapter_index, segment_index = futures[future]
+                    results.setdefault(chapter_index, {})[
+                        segment_index
+                    ] = future.result()
+                    _notify(
+                        progress,
+                        _segment_generated_message(
+                            chapters,
+                            chapter_index,
+                            segment_index,
+                            len(chapter_segments[chapter_index]),
+                        ),
+                    )
+            except interfaces.TaskCancelled:
+                # Segments already in flight finish naturally (they can't be
+                # interrupted mid-request), but nothing queued behind them
+                # starts.
+                executor.shutdown(cancel_futures=True)
+                raise
 
         return {
-            chapter_index: [segment_results[i] for i in range(len(segment_results))]
+            chapter_index: [
+                (chapter_segments[chapter_index][i], segment_results[i])
+                for i in range(len(segment_results))
+            ]
             for chapter_index, segment_results in results.items()
         }
 
     def _create_audiobooks_per_part(
         self,
         parts: list,
+        target_dir: str,
         input_dto: dto.CreateAudiobookInput,
         batch_size: int,
+        progress: interfaces.ProgressReporter | None,
     ) -> dto.CreateAudiobookOutput:
         """Create one audiobook file per part (e.g. one per work in a series).
 
@@ -112,8 +144,8 @@ class CreateAudiobookUseCase:
         the next part starts, so completed parts survive a crash/OOM later in the
         run and a re-run can skip parts whose output already exists.
         """
-        target_dir = input_dto.target
         destinations = []
+        transcripts = []
         total_duration = 0
 
         for part_number, part in enumerate(parts, start=1):
@@ -121,26 +153,22 @@ class CreateAudiobookUseCase:
             part_target = os.path.join(target_dir, file_name)
 
             if os.path.exists(part_target):
-                logger.info(
-                    "Skipping part %d/%d '%s': '%s' already exists",
-                    part_number,
-                    len(parts),
-                    part.metadata.title,
-                    part_target,
+                _notify(
+                    progress,
+                    f"Skipping part {part_number}/{len(parts)} "
+                    f"'{part.metadata.title}': '{part_target}' already exists",
                 )
                 destinations.append(part_target)
+                transcripts.append(f"{part_target}.transcript.json")
                 continue
 
-            logger.info(
-                "Generating part %d/%d '%s' (%d chapter(s), batch_size=%d)",
-                part_number,
-                len(parts),
-                part.metadata.title,
-                len(part.chapters),
-                batch_size,
+            _notify(
+                progress,
+                f"Generating part {part_number}/{len(parts)} '{part.metadata.title}' "
+                f"({len(part.chapters)} chapter(s), batch_size={batch_size})",
             )
             chapter_parts = self._generate_chapter_audio(
-                part.chapters, input_dto, batch_size
+                part.chapters, input_dto, batch_size, progress
             )
 
             bundler = self.bundle_initializer.create(
@@ -154,29 +182,35 @@ class CreateAudiobookUseCase:
 
             destination = bundler.finalize()
             destinations.append(destination)
+            transcripts.append(f"{destination}.transcript.json")
             total_duration += part_duration
-            logger.info("Finished audiobook '%s' (%ds)", destination, part_duration)
+            _notify(progress, f"Finished audiobook '{destination}' ({part_duration}s)")
 
-        logger.info(
-            "Finished all %d part audiobook(s) (%ds total)", len(parts), total_duration
+        _notify(
+            progress,
+            f"Finished all {len(parts)} part audiobook(s) ({total_duration}s total)",
         )
         return dto.CreateAudiobookOutput(
-            destinations=destinations, total_duration=total_duration
+            destinations=destinations,
+            transcripts=transcripts,
+            total_duration=total_duration,
         )
 
     def _create_single_audiobook(
         self,
         book,
+        target: str,
         input_dto: dto.CreateAudiobookInput,
         batch_size: int,
+        progress: interfaces.ProgressReporter | None,
     ) -> dto.CreateAudiobookOutput:
         """Create a single audiobook from all chapters."""
         chapters = book.chapters
-        chapter_parts = self._generate_chapter_audio(chapters, input_dto, batch_size)
-
-        bundler = self.bundle_initializer.create(
-            input_dto.target, metadata=book.metadata
+        chapter_parts = self._generate_chapter_audio(
+            chapters, input_dto, batch_size, progress
         )
+
+        bundler = self.bundle_initializer.create(target, metadata=book.metadata)
         duration = 0
 
         for index, chapter in enumerate(chapters):
@@ -185,16 +219,20 @@ class CreateAudiobookUseCase:
             )
 
         destination = bundler.finalize()
-        logger.info("Finished audiobook '%s' (%ds total)", destination, duration)
+        _notify(progress, f"Finished audiobook '{destination}' ({duration}s total)")
         return dto.CreateAudiobookOutput(
-            destinations=[destination], total_duration=duration
+            destinations=[destination],
+            transcripts=[f"{destination}.transcript.json"],
+            total_duration=duration,
         )
 
     def _create_chunked_audiobooks(
         self,
         book,
+        target: str,
         input_dto: dto.CreateAudiobookInput,
         batch_size: int,
+        progress: interfaces.ProgressReporter | None,
     ) -> dto.CreateAudiobookOutput:
         """Create multiple audiobook files, chunked by chapter count.
 
@@ -205,17 +243,17 @@ class CreateAudiobookUseCase:
         chapters = book.chapters
         chapters_per_chunk = input_dto.chapters_per_chunk
         destinations = []
+        transcripts = []
         total_duration = 0
 
         # Split target path to create numbered outputs
-        target_path = input_dto.target
-        base, ext = os.path.splitext(target_path)
+        base, ext = os.path.splitext(target)
 
         num_chunks = (len(chapters) + chapters_per_chunk - 1) // chapters_per_chunk
-        logger.info(
-            "Creating %d audiobook chunk(s), %d chapters per chunk",
-            num_chunks,
-            chapters_per_chunk,
+        _notify(
+            progress,
+            f"Creating {num_chunks} audiobook chunk(s), "
+            f"{chapters_per_chunk} chapters per chunk",
         )
 
         for chunk_idx in range(num_chunks):
@@ -227,20 +265,20 @@ class CreateAudiobookUseCase:
             if num_chunks > 1:
                 chunk_target = f"{base}-part-{chunk_idx + 1}{ext}"
             else:
-                chunk_target = target_path
+                chunk_target = target
 
             if os.path.exists(chunk_target):
-                logger.info(
-                    "Skipping chunk %d/%d: '%s' already exists",
-                    chunk_idx + 1,
-                    num_chunks,
-                    chunk_target,
+                _notify(
+                    progress,
+                    f"Skipping chunk {chunk_idx + 1}/{num_chunks}: "
+                    f"'{chunk_target}' already exists",
                 )
                 destinations.append(chunk_target)
+                transcripts.append(f"{chunk_target}.transcript.json")
                 continue
 
             chapter_parts = self._generate_chapter_audio(
-                chunk_chapters, input_dto, batch_size
+                chunk_chapters, input_dto, batch_size, progress
             )
 
             bundler = self.bundle_initializer.create(
@@ -255,59 +293,115 @@ class CreateAudiobookUseCase:
 
             destination = bundler.finalize()
             destinations.append(destination)
+            transcripts.append(f"{destination}.transcript.json")
             total_duration += chunk_duration
-            logger.info(
-                "Finished audiobook chunk %d/%d: '%s' (%ds)",
-                chunk_idx + 1,
-                num_chunks,
-                destination,
-                chunk_duration,
+            _notify(
+                progress,
+                f"Finished audiobook chunk {chunk_idx + 1}/{num_chunks}: "
+                f"'{destination}' ({chunk_duration}s)",
             )
 
-        logger.info("Finished all audiobook chunks (%ds total)", total_duration)
+        _notify(progress, f"Finished all audiobook chunks ({total_duration}s total)")
         return dto.CreateAudiobookOutput(
-            destinations=destinations, total_duration=total_duration
+            destinations=destinations,
+            transcripts=transcripts,
+            total_duration=total_duration,
         )
 
 
 def _bundle_chapter_segments(
-    bundler: interfaces.Bundler, title: str, segments: list[entities.SpeechResult]
+    bundler: interfaces.Bundler,
+    title: str,
+    segments: list[tuple[entities.DialogueSegment, entities.SpeechResult]],
 ) -> float:
     """Add one chapter's segments to the bundler, gapped and grouped under a
     single chapter marker, and return the chapter's total duration."""
     duration = 0.0
-    for segment_index, speech in enumerate(segments):
+    for segment_index, (segment, speech) in enumerate(segments):
         if segment_index > 0:
             bundler.add_silence(_SEGMENT_GAP_SECONDS)
-        bundler.add_part(title, speech.data, new_chapter=(segment_index == 0))
+        bundler.add_part(
+            title,
+            speech.data,
+            text=segment.text,
+            speaker=segment.speaker,
+            new_chapter=(segment_index == 0),
+        )
         duration += speech.duration
     return duration
 
 
-def _log_segment_generated(
+def _notify(progress: interfaces.ProgressReporter | None, message: str) -> None:
+    logger.info(message)
+    if progress is not None:
+        if progress.is_cancelled():
+            raise interfaces.TaskCancelled(message)
+        progress.report(message)
+
+
+def _segment_generated_message(
     chapters: list, chapter_index: int, segment_index: int, segment_count: int
-) -> None:
+) -> str:
+    title = chapters[chapter_index].title
     if segment_count == 1:
-        logger.info(
-            "Generated audio for chapter %d/%d: '%s'",
-            chapter_index + 1,
-            len(chapters),
-            chapters[chapter_index].title,
-        )
-    else:
-        logger.info(
-            "Generated audio for chapter %d/%d segment %d/%d: '%s'",
-            chapter_index + 1,
-            len(chapters),
-            segment_index + 1,
-            segment_count,
-            chapters[chapter_index].title,
-        )
+        return f"Generated audio for chapter {chapter_index + 1}/{len(chapters)}: '{title}'"
+    return (
+        f"Generated audio for chapter {chapter_index + 1}/{len(chapters)} "
+        f"segment {segment_index + 1}/{segment_count}: '{title}'"
+    )
 
 
 def _safe_filename(title: str) -> str:
     cleaned = _UNSAFE_FILENAME_CHARS.sub(" ", title).strip().rstrip(".")
     return " ".join(cleaned.split()) or "untitled"
+
+
+@dataclasses.dataclass(frozen=True)
+class CreateSampleUseCase:
+    book_repository: interfaces.BookRepository
+    tts_provider: interfaces.TTSProvider
+    text_annotator: interfaces.TextAnnotator | None
+
+    def execute(
+        self,
+        input_dto: dto.CreateSampleInput,
+        progress: interfaces.ProgressReporter | None = None,
+    ) -> entities.SpeechResult:
+        _notify(
+            progress,
+            f"Fetching '{input_dto.identifier}' from '{input_dto.source}'",
+        )
+        book = self.book_repository.get_book(input_dto.identifier)
+        parts = book.get_parts()
+        chapters = parts[0].chapters
+        _notify(
+            progress,
+            f"Extracted {len(chapters)} chapter(s) in {len(parts)} part(s)",
+        )
+
+        sentence_count = max(1, input_dto.sentence_count)
+        text = _first_n_sentences(chapters, sentence_count, progress)
+        if self.text_annotator is not None:
+            text = self.text_annotator.annotate(text)
+
+        _notify(progress, f"Generating audio sample ({sentence_count} sentence(s))")
+        return self.tts_provider.generate(text, input_dto.engine, input_dto.voice)
+
+
+def _first_n_sentences(
+    chapters: list, n: int, progress: interfaces.ProgressReporter | None = None
+) -> str:
+    sentences: list[str] = []
+    for chapter in chapters:
+        for raw in _SENTENCE_BOUNDARY.split(chapter.content):
+            sentence = raw.strip()
+            if not sentence:
+                continue
+            sentences.append(sentence)
+            _notify(progress, f"Collected sentence {len(sentences)}/{n}")
+            if len(sentences) >= n:
+                return " ".join(sentences)
+    return " ".join(sentences)
 
 
 @dataclasses.dataclass(frozen=True)

@@ -4,7 +4,8 @@ import dataclasses
 @dataclasses.dataclass(frozen=True)
 class CreateAudiobookInput:
     identifier: str
-    target: str
+    name: str
+    audiobook_folder: str
     engine: str
     voice: str
     batch_size: int = 1
@@ -15,7 +16,17 @@ class CreateAudiobookInput:
 @dataclasses.dataclass(frozen=True)
 class CreateAudiobookOutput:
     destinations: list[str]
+    transcripts: list[str]
     total_duration: int
+
+
+@dataclasses.dataclass(frozen=True)
+class CreateSampleInput:
+    identifier: str
+    source: str
+    engine: str
+    voice: str
+    sentence_count: int = 3
 
 
 @dataclasses.dataclass(frozen=True)

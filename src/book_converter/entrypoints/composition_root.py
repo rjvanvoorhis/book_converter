@@ -20,12 +20,14 @@ from book_converter.infrastructure.speech_generation import (
     extracted_text_book_repository,
 )
 from book_converter.infrastructure.speech_generation import ffmpeg_bundler
+from book_converter.infrastructure.speech_generation import in_memory_task_store
 from book_converter.infrastructure.speech_generation import kokoro_tts_provider
 from book_converter.infrastructure.speech_generation import pocket_tts_provider
 from book_converter.infrastructure.speech_generation import quote_dialogue_segmenter
 from book_converter.infrastructure.speech_generation import text_annotator
 from book_converter.infrastructure.text_extraction import ao3_converter
 from book_converter.infrastructure.text_extraction import ao3_repository
+from book_converter.infrastructure.text_extraction import azw3_converter
 from book_converter.infrastructure.text_extraction import dispatching_converter
 from book_converter.infrastructure.text_extraction import epub_converter
 from book_converter.infrastructure.text_extraction import extracted_text_saver
@@ -44,7 +46,11 @@ class Container:
 
 def build_container() -> Container:
     ebook_converter = dispatching_converter.DispatchingEbookConverter(
-        converters=[epub_converter.EpubConverter(), ao3_converter.Ao3HtmlConverter()]
+        converters=[
+            epub_converter.EpubConverter(),
+            azw3_converter.Azw3Converter(),
+            ao3_converter.Ao3HtmlConverter(),
+        ]
     )
     ebook_repositories = {
         "file": filesystem_repository.FilesystemEbookRepository(),
@@ -102,6 +108,10 @@ def build_container() -> Container:
 
     # Initialize FFmpeg bundler
     bundle_initializer = ffmpeg_bundler.FfmpegBundleInitializer()
+
+    # Tracks in-flight audiobook generation runs so the API can hand back a
+    # task id and let the client poll instead of blocking on the request.
+    audiobook_task_store = in_memory_task_store.InMemoryTaskStore()
 
     # Quote-detection dialogue segmenter (phase 1 of speaker attribution): tags
     # detected dialogue with entities.UNKNOWN_SPEAKER rather than a real name.
@@ -162,6 +172,7 @@ def build_container() -> Container:
                 book_repositories_by_source,
                 bundle_initializer,
                 dialogue_segmenter,
+                audiobook_task_store,
             ),
         ],
     )

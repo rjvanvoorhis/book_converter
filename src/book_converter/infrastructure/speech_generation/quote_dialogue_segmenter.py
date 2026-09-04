@@ -9,6 +9,15 @@ from book_converter.features.speech_generation import entities
 # plain text directly and skips that step, so curly quotes can still show up.
 _QUOTE_SPAN = re.compile(r'["“][^"”]*["”]')
 
+# Caps how much narration `_merge_adjacent_narration` will fold into a
+# single TTS-call segment. Deliberately not tiny: pocket-tts has a
+# documented weakness on very short inputs too (more prone to a "loud
+# whirring" failure), so this bounds the worst case (segments tens of
+# minutes long) without swinging to the opposite failure mode of
+# fragmenting everything into tiny segments. ~2000 chars is roughly
+# 1.5-3 minutes of narration at typical speech rate.
+_MAX_MERGED_NARRATION_CHARS = 2000
+
 
 @dataclasses.dataclass(frozen=True)
 class QuoteDialogueSegmenter:
@@ -45,8 +54,21 @@ def _merge_adjacent_narration(
     segments: list[entities.DialogueSegment],
 ) -> list[entities.DialogueSegment]:
     merged: list[entities.DialogueSegment] = []
-    for segment in segments:
-        if segment.speaker is None and merged and merged[-1].speaker is None:
+    for index, segment in enumerate(segments):
+        # Never merge the second paragraph into the first: a chapter's
+        # opening paragraph is often a heading duplicated from the source
+        # HTML's <h1> (html_text.extract_body_text turns it into paragraph
+        # 0), and merging it into the story's first paragraph makes TTS
+        # read the heading straight into the first sentence instead of
+        # pausing between them.
+        can_merge = (
+            index != 1
+            and merged
+            and segment.speaker is None
+            and merged[-1].speaker is None
+            and len(merged[-1].text) + len(segment.text) <= _MAX_MERGED_NARRATION_CHARS
+        )
+        if can_merge:
             merged[-1] = entities.DialogueSegment(
                 text=f"{merged[-1].text}\n\n{segment.text}", speaker=None
             )

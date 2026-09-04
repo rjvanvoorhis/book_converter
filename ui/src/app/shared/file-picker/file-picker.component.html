@@ -1,0 +1,29 @@
+<div class="file-picker">
+  <button type="button" (click)="toggle()">{{ open() ? 'Close' : 'Browse…' }}</button>
+
+  @if (open()) {
+    <div class="panel">
+      @if (error()) {
+        <p class="error">{{ error() }}</p>
+      }
+
+      <div class="path-bar">
+        <button type="button" class="up" [disabled]="!parent()" (click)="navigateUp()">
+          ↑ Up
+        </button>
+        <span class="current-path">{{ path() }}</span>
+      </div>
+
+      <ul class="entries">
+        @for (entry of entries(); track entry.path) {
+          <li class="entry" [class.dir]="entry.is_dir" (click)="select(entry)">
+            <span class="icon">{{ entry.is_dir ? '📁' : '📄' }}</span>
+            <span class="name">{{ entry.name }}</span>
+          </li>
+        } @empty {
+          <li class="empty">No subfolders or ebook files here.</li>
+        }
+      </ul>
+    </div>
+  }
+</div>

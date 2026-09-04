@@ -1,5 +1,6 @@
 import dataclasses
 import hashlib
+import json
 import pathlib
 import shutil
 import typing
@@ -42,6 +43,8 @@ class _Part:
     path: pathlib.Path
     duration: float
     new_chapter: bool
+    text: str
+    speaker: str | None = None
 
 
 @dataclasses.dataclass
@@ -51,13 +54,25 @@ class FfmpegBundler:
     work_dir: pathlib.Path
     _parts: list[_Part] = dataclasses.field(default_factory=list)
 
-    def add_part(self, title: str, part: typing.IO, new_chapter: bool = True) -> None:
+    def add_part(
+        self,
+        title: str,
+        part: typing.IO,
+        text: str,
+        speaker: str | None = None,
+        new_chapter: bool = True,
+    ) -> None:
         part_path = self.work_dir / f"part_{len(self._parts):04d}"
         part_path.write_bytes(part.read())
         duration = ffmpeg_support.probe_duration_seconds(part_path)
         self._parts.append(
             _Part(
-                title=title, path=part_path, duration=duration, new_chapter=new_chapter
+                title=title,
+                path=part_path,
+                duration=duration,
+                new_chapter=new_chapter,
+                text=text,
+                speaker=speaker,
             )
         )
 
@@ -69,7 +84,13 @@ class FfmpegBundler:
         part_path = self.work_dir / f"part_{len(self._parts):04d}"
         ffmpeg_support.generate_silence(seconds, part_path)
         self._parts.append(
-            _Part(title="", path=part_path, duration=seconds, new_chapter=False)
+            _Part(
+                title="",
+                path=part_path,
+                duration=seconds,
+                new_chapter=False,
+                text="",
+            )
         )
 
     def finalize(self) -> str:
@@ -140,6 +161,19 @@ class FfmpegBundler:
                 f"ffmpeg reported success but produced no output at '{self.target}'"
             )
 
+        transcript_path = pathlib.Path(f"{self.target}.transcript.json")
+        transcript_path.write_text(
+            json.dumps(
+                {
+                    "audiobook": self.target.name,
+                    "title": self.metadata.title if self.metadata is not None else None,
+                    "segments": _build_transcript_segments(self._parts),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
         # Only clean up the work dir once the real output is confirmed on disk, so
         # a failure never leaves us with neither the target nor the intermediates.
         shutil.rmtree(self.work_dir, ignore_errors=True)
@@ -155,6 +189,34 @@ def _quote_concat_path(path: str) -> str:
     it, then reopen quoting — the same trick POSIX shells use.
     """
     return "'" + path.replace("'", "'\\''") + "'"
+
+
+def _build_transcript_segments(parts: list[_Part]) -> list[dict]:
+    """Walk parts the same way `_ffmetadata` does (tracking cumulative position
+    and which chapter each part falls under), emitting one segment per
+    non-silence part so a transcript segment's timing lines up with the
+    chapter markers written to the audio file."""
+    segments: list[dict] = []
+    cursor_ms = 0
+    chapter_title: str | None = None
+    for part in parts:
+        if part.new_chapter and chapter_title is not None:
+            chapter_title = None
+        if chapter_title is None:
+            chapter_title = part.title
+        start_ms = cursor_ms
+        cursor_ms += round(part.duration * 1000)
+        if part.text:
+            segments.append(
+                {
+                    "chapter_title": chapter_title,
+                    "speaker": part.speaker,
+                    "text": part.text,
+                    "start_seconds": start_ms / 1000,
+                    "end_seconds": cursor_ms / 1000,
+                }
+            )
+    return segments
 
 
 def _ffmetadata(metadata: core_entities.BookMetadata | None, parts: list[_Part]) -> str:

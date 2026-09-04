@@ -4,6 +4,7 @@ import typing
 
 from book_converter.features.text_extraction import dto
 from book_converter.features.text_extraction import use_cases
+from book_converter.infrastructure.text_extraction import filesystem_browser
 from book_converter.presentation import api
 
 _UseCaseT = typing.TypeVar("_UseCaseT")
@@ -33,6 +34,10 @@ def build_routes(
             rule="/extracted-texts/copyedit",
             method="POST",
             handler=_copyedit_handler(copyedit_by_editor),
+        ),
+        api.Route(
+            rule="/files/browse",
+            handler=_browse_files_handler(),
         ),
     ]
 
@@ -97,7 +102,18 @@ def _copyedit_handler(
     return handle
 
 
-def _query_value(request: api.Request, key: str, default: str) -> str:
+def _browse_files_handler() -> api.Handler:
+    def handle(request: api.Request) -> api.Response:
+        path = _query_value(request, "path", None)
+        try:
+            return _json_response(filesystem_browser.browse(path))
+        except (FileNotFoundError, NotADirectoryError) as exc:
+            return _json_error_response(str(exc), 404)
+
+    return handle
+
+
+def _query_value(request: api.Request, key: str, default: str | None) -> str | None:
     values = request.query.get(key)
     return values[0] if values else default
 
@@ -112,10 +128,20 @@ def _resolve(
         raise ValueError(f"Unknown {label} '{key}'. Available: {available}") from None
 
 
-def _json_response(output: typing.Any) -> api.Response:
-    body = json.dumps(dataclasses.asdict(output)).encode("utf-8")
+def _json_response(output: typing.Any, status_code: int = 200) -> api.Response:
+    payload = dataclasses.asdict(output) if dataclasses.is_dataclass(output) else output
+    body = json.dumps(payload).encode("utf-8")
     return api.Response(
-        status_code=200,
+        status_code=status_code,
+        headers={"Content-Type": "application/json"},
+        body=body,
+    )
+
+
+def _json_error_response(message: str, status_code: int = 400) -> api.Response:
+    body = json.dumps({"error": message}).encode("utf-8")
+    return api.Response(
+        status_code=status_code,
         headers={"Content-Type": "application/json"},
         body=body,
     )

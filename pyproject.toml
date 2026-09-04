@@ -9,6 +9,9 @@ dependencies = [
     "fastapi>=0.68.1",
     "language-tool-python>=2.8.2",
     "lxml>=5.4.0",
+    "matplotlib>=3.3.4",
+    "mobi>=0.3.2",
+    "numpy>=1.19.5",
     "python-multipart>=0.0.5",
     "requests>=2.27.1",
     "typer>=0.10.0",
@@ -17,6 +20,8 @@ dependencies = [
 
 [project.scripts]
 book-converter = "book_converter:main"
+book-converter-api = "book_converter.entrypoints.api:main"
+book-converter-ui = "book_converter.entrypoints.ui:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]

@@ -1,0 +1,140 @@
+/* Design tokens lifted from Audiobookshelf's own dark theme (sampled from
+   the public demo at audiobooks.dev) - this app is meant to sit alongside
+   ABS eventually, so it borrows the same palette rather than inventing its
+   own. */
+:root {
+  /* Lets the browser render native widgets (the <audio> player's own
+     controls, <select> popups, scrollbars) in dark mode instead of their
+     light-theme default, so they don't stick out against the rest of the
+     app. */
+  color-scheme: dark;
+
+  --bg: #373838;
+  --bg-header: #232323;
+  --bg-card: #2e2e2e;
+  --bg-input: #1e1f1f;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  --text: #ffffff;
+  --text-muted: #a0a0a0;
+  --text-dim: #6b7280;
+
+  --accent-green: #4caf50;
+  --accent-green-hover: #439a46;
+  --accent-gold: #facc15;
+  --accent-red: #f87171;
+  --accent-red-bg: rgba(248, 113, 113, 0.12);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+
+  --font-family:
+    'Source Sans 3', 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-family);
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 700;
+}
+
+a {
+  color: inherit;
+}
+
+/* Baseline so every plain <button>/<input>/<select> in the app looks
+   at home in the dark theme even before a component adds its own rules -
+   component styles below layer on top of (or override) this. */
+button {
+  font-family: inherit;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.9rem;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-dim);
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 2px solid var(--accent-gold);
+  outline-offset: 1px;
+}
+
+/* Primary action - Audiobookshelf's own "Play" green. Add this class to a
+   button for the one primary action in a view (submit, apply, save). */
+.btn-primary {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-green-hover);
+  border-color: var(--accent-green-hover);
+}
+
+.btn-danger {
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--accent-red-bg);
+}

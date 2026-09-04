@@ -1,0 +1,299 @@
+<section class="page">
+  <h1>Audit</h1>
+
+  <div class="folder-bar">
+    <label for="folder">Audiobook folder</label>
+    <input id="folder" type="text" [formControl]="folder" (change)="loadAudiobooks()" />
+    <button type="button" (click)="loadAudiobooks()" [disabled]="audiobooksLoading()">
+      {{ audiobooksLoading() ? 'Loading…' : 'Refresh' }}
+    </button>
+  </div>
+
+  @if (audiobooksError()) {
+    <p class="error">{{ audiobooksError() }}</p>
+  }
+
+  <div class="layout">
+    <ul class="audiobook-list">
+      @for (item of audiobooks(); track item.path) {
+        <li
+          class="audiobook-item"
+          [class.active]="selected()?.path === item.path"
+          (click)="selectAudiobook(item)"
+        >
+          <span class="title">{{ item.title }}</span>
+          <span class="meta">{{ item.segment_count }} segment(s)</span>
+        </li>
+      } @empty {
+        <li class="empty">No audiobooks with a transcript found in this folder.</li>
+      }
+    </ul>
+
+    @if (selected(); as item) {
+      <div class="detail">
+        <h2>{{ item.title }}</h2>
+
+        <audio #player controls></audio>
+        <p class="hint">Click a segment's ▶ button below to play just that clip.</p>
+
+        @if (transcriptError()) {
+          <p class="error">{{ transcriptError() }}</p>
+        }
+
+        <div class="toolbar">
+          <button type="button" [disabled]="isDetecting()" (click)="runDetection()">
+            {{ isDetecting() ? 'Scanning…' : 'Detect noise artifacts' }}
+          </button>
+          <button type="button" [disabled]="resegmenting()" (click)="runResegment()">
+            {{ resegmenting() ? 'Splitting…' : 'Split long segments' }}
+          </button>
+          @if (resegmentMessage()) {
+            <span class="hint">{{ resegmentMessage() }}</span>
+          }
+          @if (resegmentError()) {
+            <span class="error">{{ resegmentError() }}</span>
+          }
+          @if (isDetecting()) {
+            <button type="button" class="cancel" (click)="cancelDetection()">Cancel</button>
+            <span class="hint">{{ detectTask()?.message }}</span>
+          }
+          @if (!isDetecting() && cuts().length > 0) {
+            <span class="hint">{{ cuts().length }} candidate artifact(s) found</span>
+            <label class="flagged-only">
+              <input
+                type="checkbox"
+                [checked]="showOnlyFlagged()"
+                (change)="toggleShowOnlyFlagged()"
+              />
+              Show only flagged segments
+            </label>
+          }
+          @if (!isDetecting() && detectTask()?.status === 'completed' && cuts().length === 0) {
+            <span class="hint">0 candidate artifact(s) found</span>
+          }
+          @if (detectTask()?.status === 'cancelled') {
+            <span class="hint">Cancelled.</span>
+          }
+          @if (detectTask()?.status === 'failed') {
+            <span class="error">{{ detectTask()?.error }}</span>
+          }
+        </div>
+
+        <fieldset class="regen-form" [formGroup]="editForm">
+          <legend>Regeneration voice</legend>
+          <div class="field">
+            <label for="ttsProvider">TTS provider</label>
+            <select id="ttsProvider" formControlName="ttsProvider" (change)="onProviderChange()">
+              @for (option of ttsProviders; track option.value) {
+                <option [value]="option.value">{{ option.label }}</option>
+              }
+            </select>
+          </div>
+          <div class="field">
+            <label for="engine">Engine</label>
+            <input id="engine" type="text" formControlName="engine" (change)="loadVoices()" />
+          </div>
+          <div class="field">
+            <label for="voice">Narrator voice</label>
+            <select id="voice" formControlName="voice">
+              @for (voice of voices(); track voice.id) {
+                <option [value]="voice.id">{{ voice.description || voice.id }}</option>
+              }
+            </select>
+          </div>
+          <div class="field">
+            <label for="dialogueVoice">Dialogue voice (optional)</label>
+            <select id="dialogueVoice" formControlName="dialogueVoice">
+              <option value="">Same as narrator voice</option>
+              @for (voice of voices(); track voice.id) {
+                <option [value]="voice.id">{{ voice.description || voice.id }}</option>
+              }
+            </select>
+          </div>
+          <div class="field">
+            <label for="pronunciations">Pronunciations dictionary (optional)</label>
+            <select id="pronunciations" formControlName="pronunciations">
+              <option value="">None</option>
+              @for (dict of pronunciationDicts(); track dict.path) {
+                <option [value]="dict.path">{{ dict.name }}</option>
+              }
+            </select>
+          </div>
+        </fieldset>
+
+        <div class="segments">
+          @if (showOnlyFlagged() && visibleSegments().length === 0) {
+            <p class="hint">No flagged segments.</p>
+          }
+          @for (item of visibleSegments(); track item.index) {
+            @if (isNewChapter(item.index)) {
+              <h3 class="chapter-heading">{{ item.segment.chapter_title }}</h3>
+            }
+            <div
+              class="segment"
+              [class.flagged]="isFlagged(item.segment)"
+              [class.selected]="isEditorOpen(item.index)"
+            >
+              <div class="segment-row">
+                <button type="button" class="seek" (click)="playSegment(item.segment)">
+                  ▶ {{ item.segment.start_seconds.toFixed(1) }}s
+                </button>
+                @if (item.segment.speaker) {
+                  <span class="badge speaker">dialogue</span>
+                }
+                @if (isFlagged(item.segment)) {
+                  <span class="badge flag">flagged by detector</span>
+                }
+                <span class="badge status" [class]="reviewStatus(item.index)">
+                  {{ reviewStatus(item.index) }}
+                </span>
+                @if (editFor(item.index); as edit) {
+                  <span class="badge edit-pending">
+                    @if (edit.kind === 'regenerate') {
+                      staged: regenerated
+                    } @else {
+                      staged: cut {{ edit.cut_start_seconds.toFixed(1) }}s–{{ edit.cut_end_seconds.toFixed(1) }}s
+                    }
+                  </span>
+                  <button type="button" (click)="discardEdit(item.index)">Discard</button>
+                }
+                <span class="spacer"></span>
+                <button type="button" (click)="setReview(item.index, 'ok')">Mark OK</button>
+                <button type="button" (click)="setReview(item.index, 'flagged')">Flag</button>
+                <button type="button" (click)="toggleEditor(item.index)">
+                  {{ isEditorOpen(item.index) ? 'Close' : 'Fix…' }}
+                </button>
+              </div>
+
+              @if (isFlagged(item.segment)) {
+                <div class="flagged-cuts">
+                  @for (cut of flaggedCutsFor(item.segment); track cut.start_seconds) {
+                    <button type="button" class="seek flagged-cut" (click)="playFlaggedCut(cut)">
+                      ▶ artifact @ {{ cut.start_seconds.toFixed(1) }}s–{{ cut.end_seconds.toFixed(1) }}s
+                    </button>
+                  }
+                </div>
+              }
+
+              @if (isEditorOpen(item.index)) {
+                <div class="edit-panel">
+                  <div class="edit-section">
+                    <p class="section-label">
+                      Cut dead air/noise out of the existing audio (fixes most issues)
+                    </p>
+                    <div class="cut-range">
+                      <label>
+                        Cut from
+                        <input
+                          type="number"
+                          step="0.1"
+                          [value]="cutRangeFor(item.index, item.segment).start"
+                          (change)="setCutRangeStart(item.index, item.segment, $any($event.target).valueAsNumber)"
+                        />
+                        s
+                      </label>
+                      <label>
+                        to
+                        <input
+                          type="number"
+                          step="0.1"
+                          [value]="cutRangeFor(item.index, item.segment).end"
+                          (change)="setCutRangeEnd(item.index, item.segment, $any($event.target).valueAsNumber)"
+                        />
+                        s
+                      </label>
+                      @if (flaggedCutsFor(item.segment)[0]; as flagged) {
+                        <button type="button" (click)="useFlaggedCutRange(item.index, item.segment, flagged)">
+                          Use flagged range
+                        </button>
+                      }
+                      <button type="button" (click)="previewCutRange(item.index, item.segment)">
+                        ▶ Preview range
+                      </button>
+                      <button
+                        type="button"
+                        class="btn-primary"
+                        [disabled]="!cutRangeValid(item.index, item.segment) || isStagingCut(item.index)"
+                        (click)="stageCut(item.index, item.segment)"
+                      >
+                        {{ isStagingCut(item.index) ? 'Staging…' : 'Stage this cut' }}
+                      </button>
+                    </div>
+                    @if (!cutRangeValid(item.index, item.segment)) {
+                      <span class="hint">Range must fall within this segment.</span>
+                    }
+                    @if (flaggedCutsFor(item.segment)[0]; as flagged) {
+                      @if (flaggedExceedsSegment(flagged, item.segment)) {
+                        <span class="hint">
+                          This flagged noise extends into a neighboring segment - "Use flagged
+                          range" only covers the part inside this one; cut the rest from the
+                          other segment separately.
+                        </span>
+                      }
+                    }
+                    @if (stageCutError()) {
+                      <span class="error">{{ stageCutError() }}</span>
+                    }
+                  </div>
+
+                  <div class="edit-section">
+                    <p class="section-label">Or re-read the whole segment</p>
+                    <textarea
+                      class="edit-text"
+                      [value]="textFor(item.index, item.segment.text)"
+                      (input)="onEditText(item.index, $any($event.target).value)"
+                    ></textarea>
+                    <div class="preview-row">
+                      <button
+                        type="button"
+                        class="btn-primary"
+                        [disabled]="isStaging(item.index)"
+                        (click)="stageRegeneration(item.index, item.segment.text)"
+                      >
+                        {{ isStaging(item.index) ? 'Generating…' : 'Regenerate & stage' }}
+                      </button>
+                      @if (editFor(item.index)?.kind === 'regenerate') {
+                        <button type="button" (click)="playStagedRegeneration(item.index)">
+                          ▶ Listen to staged take
+                        </button>
+                      }
+                    </div>
+                    @if (stageError()) {
+                      <span class="error">{{ stageError() }}</span>
+                    }
+                  </div>
+                </div>
+              } @else {
+                <p class="segment-text">{{ item.segment.text }}</p>
+              }
+            </div>
+          }
+        </div>
+
+        <div class="toolbar">
+          <button
+            type="button"
+            class="btn-primary"
+            [disabled]="pendingEditCount() === 0 || isApplying()"
+            (click)="runApply()"
+          >
+            {{ isApplying() ? 'Applying…' : 'Apply ' + pendingEditCount() + ' edit(s)' }}
+          </button>
+          @if (isApplying()) {
+            <button type="button" class="cancel" (click)="cancelApply()">Cancel</button>
+            <span class="hint">{{ applyTask()?.message }}</span>
+          }
+          @if (applyTask()?.status === 'completed') {
+            <span class="hint">Done — audiobook and transcript updated.</span>
+          }
+          @if (applyTask()?.status === 'cancelled') {
+            <span class="hint">Cancelled — nothing was changed.</span>
+          }
+          @if (applyError()) {
+            <span class="error">{{ applyError() }}</span>
+          }
+        </div>
+      </div>
+    }
+  </div>
+</section>

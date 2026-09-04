@@ -20,6 +20,27 @@ class TextAnnotator(typing.Protocol):
     def annotate(self, text: str) -> str: ...
 
 
+class ProgressReporter(typing.Protocol):
+    """Receives human-readable status updates as a long-running audiobook
+    generation run progresses, so a caller (e.g. an HTTP polling endpoint)
+    can surface them without needing to tail server logs. Also doubles as
+    the cancellation check: a use case calls `is_cancelled()` at its own
+    natural checkpoints (between segments, between chapters/parts) and
+    raises TaskCancelled to unwind cleanly - nothing can forcibly interrupt
+    a running thread, so cancellation is cooperative."""
+
+    def report(self, message: str) -> None: ...
+
+    def is_cancelled(self) -> bool: ...
+
+
+class TaskCancelled(Exception):
+    """Raised at a ProgressReporter checkpoint once cancellation has been
+    requested, so a long-running use case unwinds instead of running to
+    completion. Callers (e.g. the HTTP task runner) catch this separately
+    from other failures and record it as "cancelled", not "failed"."""
+
+
 class DialogueSegmenter(typing.Protocol):
     def segment(self, text: str) -> list[entities.DialogueSegment]: ...
 
@@ -36,7 +57,12 @@ class BookRepository(typing.Protocol):
 
 class Bundler(typing.Protocol):
     def add_part(
-        self, title: str, part: typing.IO, new_chapter: bool = True
+        self,
+        title: str,
+        part: typing.IO,
+        text: str,
+        speaker: str | None = None,
+        new_chapter: bool = True,
     ) -> None: ...
 
     def add_silence(self, seconds: float) -> None: ...

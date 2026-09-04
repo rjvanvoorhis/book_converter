@@ -5,15 +5,26 @@ import fastapi
 import starlette.datastructures
 import starlette.requests
 import uvicorn
+from fastapi.middleware.cors import CORSMiddleware
 
 from book_converter.presentation import api
 
 _PARAM_PATTERN = re.compile(r"\{(\w+)\}")
 
+# The Angular dev server runs on a different origin than this API, so it needs
+# CORS allowed to call it directly from the browser during local development.
+_DEV_UI_ORIGINS = ["http://localhost:4200", "http://127.0.0.1:4200"]
+
 
 class FastApiApplication:
     def __init__(self) -> None:
         self._app = fastapi.FastAPI()
+        self._app.add_middleware(
+            CORSMiddleware,
+            allow_origins=_DEV_UI_ORIGINS,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     def add_route(self, route: api.Route) -> typing.Self:
         param_names = _PARAM_PATTERN.findall(route.rule)
