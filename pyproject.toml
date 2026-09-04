@@ -3,8 +3,9 @@ name = "book-converter"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.12"
 dependencies = [
+    "curl-cffi>=0.16.3",
     "ebooklib>=0.20",
     "fastapi>=0.68.1",
     "language-tool-python>=2.8.2",

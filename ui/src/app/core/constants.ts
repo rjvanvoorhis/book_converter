@@ -53,6 +53,11 @@ export const BOOK_SOURCES: BookSourceOption[] = [
     identifierPlaceholder: 'Work id (e.g. 12345678) or series:<series-id>'
   },
   {
+    value: 'ffnet',
+    label: 'FanFiction.net story',
+    identifierPlaceholder: 'Story id (e.g. 12345678) or story URL'
+  },
+  {
     value: 'extracted',
     label: 'Extracted text folder',
     identifierPlaceholder: 'Path to the extracted text folder'

@@ -15,27 +15,30 @@ from book_converter.features.text_extraction import routes as text_extraction_ro
 from book_converter.features.text_extraction import (
     use_cases as text_extraction_use_cases,
 )
-from book_converter.infrastructure.speech_generation import book_repository
 from book_converter.infrastructure.speech_generation import (
+    book_repository,
     extracted_text_book_repository,
+    ffmpeg_bundler,
+    in_memory_task_store,
+    kokoro_tts_provider,
+    pocket_tts_provider,
+    quote_dialogue_segmenter,
+    text_annotator,
 )
-from book_converter.infrastructure.speech_generation import ffmpeg_bundler
-from book_converter.infrastructure.speech_generation import in_memory_task_store
-from book_converter.infrastructure.speech_generation import kokoro_tts_provider
-from book_converter.infrastructure.speech_generation import pocket_tts_provider
-from book_converter.infrastructure.speech_generation import quote_dialogue_segmenter
-from book_converter.infrastructure.speech_generation import text_annotator
-from book_converter.infrastructure.text_extraction import ao3_converter
-from book_converter.infrastructure.text_extraction import ao3_repository
-from book_converter.infrastructure.text_extraction import azw3_converter
-from book_converter.infrastructure.text_extraction import dispatching_converter
-from book_converter.infrastructure.text_extraction import epub_converter
-from book_converter.infrastructure.text_extraction import extracted_text_saver
-from book_converter.infrastructure.text_extraction import filesystem_repository
-from book_converter.infrastructure.text_extraction import language_tool_copy_editor
-from book_converter.infrastructure.text_extraction import lm_studio_copy_editor
-from book_converter.presentation import api
-from book_converter.presentation import cli
+from book_converter.infrastructure.text_extraction import (
+    ao3_converter,
+    ao3_repository,
+    azw3_converter,
+    dispatching_converter,
+    epub_converter,
+    extracted_text_saver,
+    ffnet_converter,
+    ffnet_repository,
+    filesystem_repository,
+    language_tool_copy_editor,
+    lm_studio_copy_editor,
+)
+from book_converter.presentation import api, cli
 
 
 @dataclasses.dataclass(frozen=True)
@@ -50,11 +53,13 @@ def build_container() -> Container:
             epub_converter.EpubConverter(),
             azw3_converter.Azw3Converter(),
             ao3_converter.Ao3HtmlConverter(),
+            ffnet_converter.FfNetHtmlConverter(),
         ]
     )
     ebook_repositories = {
         "file": filesystem_repository.FilesystemEbookRepository(),
         "ao3": ao3_repository.AO3EbookRepository(),
+        "ffnet": ffnet_repository.FfNetEbookRepository(),
     }
     text_saver = extracted_text_saver.ExtractedTextSaver()
 
