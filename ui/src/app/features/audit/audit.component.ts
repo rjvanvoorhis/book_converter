@@ -31,6 +31,13 @@ import {
 // not the whole segment.
 const _FLAGGED_CLIP_PADDING_SECONDS = 10;
 
+// When previewing where a cut's end lands, start a bit before it (to catch
+// trailing static) and keep playing a bit after it (to confirm narration has
+// actually resumed) - instead of playing the whole (possibly long) clip from
+// its start just to check the tail end.
+const _CUT_END_PREVIEW_LEAD_SECONDS = 0.5;
+const _CUT_END_PREVIEW_TAIL_SECONDS = 3;
+
 @Component({
   selector: 'app-audit',
   standalone: true,
@@ -46,6 +53,11 @@ export class AuditComponent implements OnInit {
   private readonly pronunciationApi = inject(PronunciationApiService);
 
   @ViewChild('player') playerRef?: ElementRef<HTMLAudioElement>;
+
+  // Shown next to the player bar so it's clear what a fixed, always-visible
+  // player is currently playing, since it's no longer next to the segment
+  // that triggered it.
+  readonly nowPlaying = signal<string | null>(null);
 
   readonly ttsProviders = TTS_PROVIDERS;
   readonly pronunciationDicts = signal<PronunciationDictSummary[]>([]);
@@ -183,7 +195,11 @@ export class AuditComponent implements OnInit {
   // getClipUrl) rather than loading the whole (potentially multi-hour)
   // audiobook into the player up front.
   playSegment(segment: TranscriptSegment): void {
-    this._playClip(segment.start_seconds, segment.end_seconds);
+    this._playClip(
+      segment.start_seconds,
+      segment.end_seconds,
+      `Segment @ ${segment.start_seconds.toFixed(1)}s–${segment.end_seconds.toFixed(1)}s`
+    );
   }
 
   // A merged narration segment can run up to 20+ minutes; playing the whole
@@ -192,7 +208,8 @@ export class AuditComponent implements OnInit {
   playFlaggedCut(cut: ArtifactCut): void {
     this._playClip(
       Math.max(0, cut.start_seconds - _FLAGGED_CLIP_PADDING_SECONDS),
-      cut.end_seconds + _FLAGGED_CLIP_PADDING_SECONDS
+      cut.end_seconds + _FLAGGED_CLIP_PADDING_SECONDS,
+      `Flagged artifact @ ${cut.start_seconds.toFixed(1)}s–${cut.end_seconds.toFixed(1)}s`
     );
   }
 
@@ -304,6 +321,7 @@ export class AuditComponent implements OnInit {
     if (!item || !player) {
       return;
     }
+    this.nowPlaying.set(`Staged take (segment ${index})`);
     player.src = this.api.getEditAudioUrl(item.path, index);
     player.load();
     player.play();
@@ -356,7 +374,18 @@ export class AuditComponent implements OnInit {
 
   previewCutRange(index: number, segment: TranscriptSegment): void {
     const { start, end } = this.cutRangeFor(index, segment);
-    this._playClip(start, end);
+    this._playClip(start, end, `Cut range @ ${start.toFixed(1)}s–${end.toFixed(1)}s`);
+  }
+
+  // The common fix is trimming trailing static/dead air: rather than
+  // replaying the whole (possibly long) cut range from its start just to
+  // check whether the end lands past the static, jump straight to just
+  // before the cut's end and keep playing past it.
+  previewCutEnd(index: number, segment: TranscriptSegment): void {
+    const { end } = this.cutRangeFor(index, segment);
+    const start = Math.max(segment.start_seconds, end - _CUT_END_PREVIEW_LEAD_SECONDS);
+    const stop = Math.min(segment.end_seconds, end + _CUT_END_PREVIEW_TAIL_SECONDS);
+    this._playClip(start, stop, `Cut end @ ${end.toFixed(1)}s`);
   }
 
   cutRangeValid(index: number, segment: TranscriptSegment): boolean {
@@ -467,12 +496,13 @@ export class AuditComponent implements OnInit {
     });
   }
 
-  private _playClip(startSeconds: number, endSeconds: number): void {
+  private _playClip(startSeconds: number, endSeconds: number, label: string): void {
     const item = this.selected();
     const player = this.playerRef?.nativeElement;
     if (!item || !player) {
       return;
     }
+    this.nowPlaying.set(label);
     player.src = this.api.getClipUrl(item.path, startSeconds, endSeconds);
     player.load();
     player.play();

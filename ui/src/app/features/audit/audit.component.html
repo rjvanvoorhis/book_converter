@@ -33,8 +33,12 @@
       <div class="detail">
         <h2>{{ item.title }}</h2>
 
-        <audio #player controls></audio>
-        <p class="hint">Click a segment's ▶ button below to play just that clip.</p>
+        <div class="player-bar">
+          <audio #player controls></audio>
+          <span class="now-playing">
+            {{ nowPlaying() || "Click a segment's ▶ button below to play just that clip." }}
+          </span>
+        </div>
 
         @if (transcriptError()) {
           <p class="error">{{ transcriptError() }}</p>
@@ -209,6 +213,13 @@
                       }
                       <button type="button" (click)="previewCutRange(item.index, item.segment)">
                         ▶ Preview range
+                      </button>
+                      <button
+                        type="button"
+                        title="Play from just before the cut end, to check where the noise stops and narration resumes"
+                        (click)="previewCutEnd(item.index, item.segment)"
+                      >
+                        ▶ Preview cut end
                       </button>
                       <button
                         type="button"
