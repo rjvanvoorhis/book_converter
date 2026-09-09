@@ -16,6 +16,9 @@ export class FilePickerComponent {
 
   /** Directory to open the browser in, e.g. the current identifier's folder. */
   @Input() startPath?: string;
+  /** File extensions (no leading dot) to show; defaults to ebook formats server-side. */
+  @Input() extensions?: string[];
+  @Input() emptyLabel = 'No subfolders or ebook files here.';
   @Output() fileSelected = new EventEmitter<string>();
 
   readonly open = signal(false);
@@ -35,7 +38,7 @@ export class FilePickerComponent {
 
   browse(path?: string): void {
     this.error.set(null);
-    this.api.browse(path).subscribe({
+    this.api.browse(path, this.extensions).subscribe({
       next: (listing) => {
         this.path.set(listing.path);
         this.parent.set(listing.parent);

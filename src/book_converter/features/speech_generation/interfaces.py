@@ -20,6 +20,17 @@ class TextAnnotator(typing.Protocol):
     def annotate(self, text: str) -> str: ...
 
 
+class AudioCleaner(typing.Protocol):
+    """Reduces noise/artifacts in a short audio clip (e.g. a voice-cloning
+    sample) that would otherwise get reproduced by a cloning-capable TTS
+    engine along with the voice itself. Implementations trade quality
+    against speed/dependencies - see infrastructure/speech_generation for
+    the concrete adapters (a zero-dependency ffmpeg filter chain vs. a
+    higher-quality ML model)."""
+
+    def clean(self, wav_bytes: bytes) -> bytes: ...
+
+
 class ProgressReporter(typing.Protocol):
     """Receives human-readable status updates as a long-running audiobook
     generation run progresses, so a caller (e.g. an HTTP polling endpoint)

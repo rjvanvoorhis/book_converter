@@ -89,6 +89,52 @@ def extract_clip(
     )
 
 
+def apply_audio_filters(wav_bytes: bytes, filters: list[str]) -> bytes:
+    """Run `wav_bytes` through an ffmpeg `-af` filtergraph, returning the
+    filtered WAV bytes unchanged otherwise - the shared plumbing behind
+    every filter-based cleanup step (denoise, silence trim, loudness
+    normalize) so each only has to name its own filters."""
+    with _temp_file(wav_bytes) as source:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
+            output_path = pathlib.Path(handle.name)
+        try:
+            run_ffmpeg(
+                ["-i", str(source), "-af", ",".join(filters), "-f", "wav", str(output_path)]
+            )
+            return output_path.read_bytes()
+        finally:
+            output_path.unlink(missing_ok=True)
+
+
+def standardize_wav(wav_bytes: bytes, sample_rate: int) -> bytes:
+    """Re-encode to mono 16-bit PCM WAV at `sample_rate` - the format every
+    voice sample is saved in regardless of which (if any) cleaner ran, since
+    a model-based cleaner can hand back a different sample rate/encoding
+    than it was given."""
+    with _temp_file(wav_bytes) as source:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
+            output_path = pathlib.Path(handle.name)
+        try:
+            run_ffmpeg(
+                [
+                    "-i",
+                    str(source),
+                    "-ac",
+                    "1",
+                    "-ar",
+                    str(sample_rate),
+                    "-c:a",
+                    "pcm_s16le",
+                    "-f",
+                    "wav",
+                    str(output_path),
+                ]
+            )
+            return output_path.read_bytes()
+        finally:
+            output_path.unlink(missing_ok=True)
+
+
 def decode_to_mono_pcm_wav(
     source: pathlib.Path,
     sample_rate: int = 24000,

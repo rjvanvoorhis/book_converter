@@ -23,6 +23,7 @@ dependencies = [
 book-converter = "book_converter:main"
 book-converter-api = "book_converter.entrypoints.api:main"
 book-converter-ui = "book_converter.entrypoints.ui:main"
+book-converter-setup-audio-clean = "book_converter.entrypoints.setup_audio_clean_worker:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]

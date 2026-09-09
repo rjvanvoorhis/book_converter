@@ -6,7 +6,8 @@ import pathlib
 _DEFAULT_EXTENSIONS = ("epub", "mobi", "azw3")
 
 
-def browse(path: str | None, extensions: tuple[str, ...] = _DEFAULT_EXTENSIONS) -> dict:
+def browse(path: str | None, extensions: tuple[str, ...] | None = None) -> dict:
+    extensions = extensions or _DEFAULT_EXTENSIONS
     directory = pathlib.Path(path) if path else pathlib.Path.cwd()
     if not directory.is_dir():
         raise NotADirectoryError(f"'{directory}' is not a directory")

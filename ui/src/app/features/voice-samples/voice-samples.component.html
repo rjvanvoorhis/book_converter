@@ -1,0 +1,175 @@
+<section class="page">
+  <h1>Voice Samples</h1>
+  <p class="hint intro">
+    Extract a clean, short clip from a recording and save it as a WAV file ready to hand a
+    cloning-capable TTS engine's <code>--voice</code> argument. Cloning reproduces whatever's in
+    the sample - including its noise - so cleaning it first improves clone fidelity.
+  </p>
+
+  <div class="layout">
+    <div class="editor">
+      <fieldset class="section">
+        <legend>1. Source recording</legend>
+        <div class="field">
+          <label for="sourcePath">File path</label>
+          <div class="path-row">
+            <input
+              id="sourcePath"
+              type="text"
+              [formControl]="sourcePath"
+              placeholder="/path/to/recording.wav"
+              (change)="loadSource()"
+            />
+            <app-file-picker
+              [extensions]="sourceExtensions"
+              emptyLabel="No subfolders or audio files here."
+              (fileSelected)="onSourcePicked($event)"
+            ></app-file-picker>
+            <button type="button" [disabled]="sourceLoading()" (click)="loadSource()">
+              {{ sourceLoading() ? 'Loading…' : 'Load' }}
+            </button>
+          </div>
+        </div>
+
+        @if (sourceError()) {
+          <p class="error">{{ sourceError() }}</p>
+        }
+
+        @if (sourceDuration() !== null) {
+          <p class="hint">Duration: {{ sourceDuration()!.toFixed(1) }}s</p>
+        }
+        <audio #sourcePlayer controls [hidden]="sourceDuration() === null"></audio>
+        @if (sourceDuration() !== null) {
+          <p class="hint">
+            Scrub to a clean, well-spoken stretch, then
+            <button type="button" class="link" (click)="useCurrentPositionAsStart()">
+              use this position as the clip start
+            </button>.
+          </p>
+        }
+      </fieldset>
+
+      <fieldset class="section" [formGroup]="clipForm">
+        <legend>2. Pick a clip</legend>
+        <div class="cut-range">
+          <label>
+            Start
+            <input type="number" step="0.1" min="0" formControlName="startSeconds" />
+            s
+          </label>
+          <label>
+            Length
+            <input type="number" step="0.5" min="0.5" formControlName="durationSeconds" />
+            s
+          </label>
+          <span class="hint">ends @ {{ clipEndSeconds().toFixed(1) }}s</span>
+          <button type="button" [disabled]="!clipRangeValid()" (click)="previewClip()">
+            ▶ Preview clip (unprocessed)
+          </button>
+        </div>
+        @if (!clipRangeValid()) {
+          <span class="hint">Pick a start/length that stays within the source recording.</span>
+        }
+      </fieldset>
+
+      <fieldset class="section" [formGroup]="cleanForm">
+        <legend>3. Clean up artifacts</legend>
+        <label class="checkbox-field">
+          <input type="checkbox" formControlName="clean" />
+          Clean the clip before saving (recommended)
+        </label>
+        <div class="clean-options" [class.disabled]="!cleanForm.controls.clean.value">
+          <label class="field">
+            Cleaner
+            <select formControlName="cleaner">
+              @for (option of cleaners(); track option.id) {
+                <option [value]="option.id">{{ option.id }}</option>
+              }
+            </select>
+            <span class="hint">
+              {{ selectedCleanerDescription() }}
+            </span>
+          </label>
+          <label class="checkbox-field">
+            <input type="checkbox" formControlName="trimSilence" />
+            Trim leading/trailing silence
+          </label>
+          <label class="checkbox-field">
+            <input type="checkbox" formControlName="normalizeLoudness" />
+            Normalize loudness
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset class="section">
+        <legend>4. Save</legend>
+        <div class="field">
+          <label for="outputFolder">Voice samples folder</label>
+          <input
+            id="outputFolder"
+            type="text"
+            [formControl]="outputFolder"
+            (change)="loadSamples()"
+          />
+        </div>
+        <div class="field">
+          <label for="sampleName">Sample name</label>
+          <input id="sampleName" type="text" [formControl]="sampleName" placeholder="narrator" />
+        </div>
+        <button
+          type="button"
+          class="btn-primary"
+          [disabled]="!clipRangeValid() || sampleName.invalid || creating()"
+          (click)="createSample()"
+        >
+          {{ creating() ? 'Cleaning…' : 'Save voice sample' }}
+        </button>
+        @if (creating() && createProgress()) {
+          <span class="hint">{{ createProgress() }}</span>
+        }
+        @if (createError()) {
+          <span class="error">{{ createError() }}</span>
+        }
+        @if (createdSample(); as sample) {
+          <p class="hint">Saved to {{ sample.path }} ({{ sample.duration_seconds.toFixed(1) }}s)</p>
+        }
+      </fieldset>
+
+      <div class="preview-bar">
+        <audio #previewPlayer controls></audio>
+        @if (nowPlaying()) {
+          <span class="now-playing">{{ nowPlaying() }}</span>
+        }
+      </div>
+    </div>
+
+    <div class="library">
+      <div class="library-header">
+        <h2>Saved samples</h2>
+        <button type="button" [disabled]="samplesLoading()" (click)="loadSamples()">
+          {{ samplesLoading() ? 'Loading…' : 'Refresh' }}
+        </button>
+      </div>
+      @if (samplesError()) {
+        <p class="error">{{ samplesError() }}</p>
+      }
+      <ul class="sample-list">
+        @for (sample of samples(); track sample.path) {
+          <li class="sample-item">
+            <button type="button" class="seek" (click)="playSample(sample)">▶</button>
+            <div class="sample-info">
+              <span class="name">{{ sample.name }}</span>
+              <span class="meta">{{ sample.duration_seconds.toFixed(1) }}s</span>
+            </div>
+            <button type="button" (click)="copyPath(sample.path)">
+              {{ copiedPath() === sample.path ? 'Copied!' : 'Copy path' }}
+            </button>
+            <button type="button" class="btn-danger" (click)="deleteSample(sample)">Delete</button>
+          </li>
+        } @empty {
+          <li class="empty">No voice samples saved in this folder yet.</li>
+        }
+      </ul>
+    </div>
+  </div>
+</section>

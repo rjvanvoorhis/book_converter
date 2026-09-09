@@ -172,3 +172,19 @@ export interface PronunciationEntry {
   value: string;
   method: PronunciationMethod;
 }
+
+export interface VoiceSampleSummary {
+  path: string;
+  name: string;
+  duration_seconds: number;
+}
+
+export interface VoiceSampleSourceProbe {
+  path: string;
+  duration_seconds: number;
+}
+
+export interface AudioCleanerOption {
+  id: string;
+  description: string;
+}

@@ -18,6 +18,9 @@ export const DEFAULT_AUDIOBOOK_FOLDER = 'data/audiobooks';
 // Matches the backend's default in routes.py.
 export const DEFAULT_PRONUNCIATIONS_FOLDER = 'pronunciation-dicts';
 
+// Matches the backend's default in routes.py.
+export const DEFAULT_VOICE_SAMPLES_FOLDER = 'data/voice_samples';
+
 /**
  * A compact IPA palette covering the symbols most English pronunciation
  * respellings need, grouped for the picker UI. Most keyboards can't type

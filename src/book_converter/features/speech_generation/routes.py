@@ -13,6 +13,7 @@ from book_converter.infrastructure.speech_generation import (
     pronunciation_dict_store,
     review_store,
     transcript_resegmenter,
+    voice_sample_service,
 )
 from book_converter.presentation import api
 
@@ -20,6 +21,7 @@ _UseCaseT = typing.TypeVar("_UseCaseT")
 
 _DEFAULT_AUDIOBOOK_FOLDER = "data/audiobooks"
 _DEFAULT_PRONUNCIATIONS_FOLDER = "pronunciation-dicts"
+_DEFAULT_VOICE_SAMPLES_FOLDER = "data/voice_samples"
 
 
 def build_routes(
@@ -29,6 +31,7 @@ def build_routes(
     bundle_initializer: interfaces.BundleInitializer,
     dialogue_segmenter: interfaces.DialogueSegmenter,
     task_store: in_memory_task_store.InMemoryTaskStore,
+    audio_cleaners: dict[str, interfaces.AudioCleaner],
 ) -> list[api.Route]:
     return [
         api.Route(
@@ -151,6 +154,40 @@ def build_routes(
             rule="/pronunciations/dict",
             method="POST",
             handler=_save_pronunciation_dict_handler(),
+        ),
+        api.Route(
+            rule="/voice-samples/source",
+            handler=_probe_voice_sample_source_handler(),
+        ),
+        api.Route(
+            rule="/voice-samples/source/audio",
+            handler=_get_voice_sample_source_audio_handler(),
+        ),
+        api.Route(
+            rule="/voice-samples/source/clip",
+            handler=_get_voice_sample_source_clip_handler(),
+        ),
+        api.Route(
+            rule="/voice-samples/cleaners",
+            handler=_list_audio_cleaners_handler(audio_cleaners),
+        ),
+        api.Route(
+            rule="/voice-samples/library",
+            handler=_list_voice_samples_handler(),
+        ),
+        api.Route(
+            rule="/voice-samples/audio",
+            handler=_get_voice_sample_audio_handler(),
+        ),
+        api.Route(
+            rule="/voice-samples",
+            method="POST",
+            handler=_create_voice_sample_handler(audio_cleaners, task_store),
+        ),
+        api.Route(
+            rule="/voice-samples",
+            method="DELETE",
+            handler=_delete_voice_sample_handler(),
         ),
     ]
 
@@ -696,6 +733,167 @@ def _save_pronunciation_dict_handler() -> api.Handler:
             return _json_error_response("Required fields: path, entries", 400)
         pronunciation_dict_store.write_dict(path, entries)
         return _json_response({"path": path, "entries": entries})
+
+    return handle
+
+
+def _probe_voice_sample_source_handler() -> api.Handler:
+    def handle(request: api.Request) -> api.Response:
+        path = _query_value(request, "path", None)
+        if not path:
+            return _json_error_response("Missing 'path' query parameter", 400)
+        try:
+            duration = voice_sample_service.probe_source_duration(path)
+        except FileNotFoundError as exc:
+            return _json_error_response(str(exc), 404)
+        return _json_response({"path": path, "duration_seconds": duration})
+
+    return handle
+
+
+def _get_voice_sample_source_audio_handler() -> api.Handler:
+    def handle(request: api.Request) -> api.Response:
+        path = _query_value(request, "path", None)
+        if not path:
+            return _json_error_response("Missing 'path' query parameter", 400)
+        try:
+            data = voice_sample_service.read_source_bytes(path)
+        except FileNotFoundError as exc:
+            return _json_error_response(str(exc), 404)
+        return api.Response(
+            status_code=200,
+            headers={"Content-Type": _sniff_audio_content_type(data)},
+            body=data,
+        )
+
+    return handle
+
+
+def _get_voice_sample_source_clip_handler() -> api.Handler:
+    def handle(request: api.Request) -> api.Response:
+        path = _query_value(request, "path", None)
+        start = _query_value(request, "start", None)
+        end = _query_value(request, "end", None)
+        if not path or start is None or end is None:
+            return _json_error_response("Required query params: path, start, end", 400)
+        try:
+            data = voice_sample_service.read_source_clip_bytes(
+                path, float(start), float(end)
+            )
+        except FileNotFoundError as exc:
+            return _json_error_response(str(exc), 404)
+        return api.Response(
+            status_code=200, headers={"Content-Type": "audio/wav"}, body=data
+        )
+
+    return handle
+
+
+def _list_audio_cleaners_handler(
+    audio_cleaners: dict[str, interfaces.AudioCleaner],
+) -> api.Handler:
+    def handle(request: api.Request) -> api.Response:
+        cleaners = [
+            {"id": cleaner.id, "description": cleaner.description}
+            for cleaner in audio_cleaners.values()
+        ]
+        return _json_response({"cleaners": cleaners})
+
+    return handle
+
+
+def _list_voice_samples_handler() -> api.Handler:
+    def handle(request: api.Request) -> api.Response:
+        folder = _query_value(request, "folder", _DEFAULT_VOICE_SAMPLES_FOLDER)
+        return _json_response({"samples": voice_sample_service.list_samples(folder)})
+
+    return handle
+
+
+def _get_voice_sample_audio_handler() -> api.Handler:
+    def handle(request: api.Request) -> api.Response:
+        path = _query_value(request, "path", None)
+        if not path:
+            return _json_error_response("Missing 'path' query parameter", 400)
+        try:
+            data = voice_sample_service.read_sample_bytes(path)
+        except FileNotFoundError as exc:
+            return _json_error_response(str(exc), 404)
+        return api.Response(
+            status_code=200, headers={"Content-Type": "audio/wav"}, body=data
+        )
+
+    return handle
+
+
+def _create_voice_sample_handler(
+    audio_cleaners: dict[str, interfaces.AudioCleaner],
+    task_store: in_memory_task_store.InMemoryTaskStore,
+) -> api.Handler:
+    def handle(request: api.Request) -> api.Response:
+        payload = json.loads(request.content)
+        source_path = payload.get("source_path")
+        start_seconds = payload.get("start_seconds")
+        end_seconds = payload.get("end_seconds")
+        name = payload.get("name")
+        if not source_path or start_seconds is None or end_seconds is None or not name:
+            return _json_error_response(
+                "Required fields: source_path, start_seconds, end_seconds, name", 400
+            )
+
+        cleaner = None
+        if payload.get("clean", True):
+            cleaner_id = payload.get("cleaner", "ffmpeg")
+            if cleaner_id not in audio_cleaners:
+                available = ", ".join(sorted(audio_cleaners)) or "(none registered)"
+                return _json_error_response(
+                    f"Unknown cleaner '{cleaner_id}'. Available: {available}", 400
+                )
+            cleaner = audio_cleaners[cleaner_id]
+
+        # A model-based cleaner can take real time (loading a neural net and
+        # running a forward pass, not just an ffmpeg filter - tens of
+        # seconds is normal on CPU), so unlike the ffmpeg-only path this
+        # used to be, it follows the task/poll pattern like every other
+        # TTS-adjacent action here rather than holding the request open.
+        task_id = task_store.create()
+        # create_sample doesn't report incremental progress (there's nothing
+        # to break into steps a user would care about), but a model-based
+        # cleaner can take the better part of a minute - report once up
+        # front so the client shows something other than "Queued" for that
+        # whole stretch.
+        cleaner_label = f" with {cleaner.id}" if cleaner is not None else ""
+        task_store.report_progress(task_id, f"Cleaning{cleaner_label}...")
+
+        def run() -> None:
+            try:
+                sample = voice_sample_service.create_sample(
+                    source_path,
+                    float(start_seconds),
+                    float(end_seconds),
+                    payload.get("output_folder", _DEFAULT_VOICE_SAMPLES_FOLDER),
+                    name,
+                    cleaner=cleaner,
+                    trim_silence=payload.get("trim_silence", True),
+                    normalize_loudness=payload.get("normalize_loudness", True),
+                )
+                task_store.complete(task_id, sample)
+            except (FileNotFoundError, ValueError, RuntimeError) as exc:
+                task_store.fail(task_id, str(exc))
+
+        threading.Thread(target=run, daemon=True).start()
+        return _json_response({"task_id": task_id}, status_code=202)
+
+    return handle
+
+
+def _delete_voice_sample_handler() -> api.Handler:
+    def handle(request: api.Request) -> api.Response:
+        path = _query_value(request, "path", None)
+        if not path:
+            return _json_error_response("Missing 'path' query parameter", 400)
+        voice_sample_service.delete_sample(path)
+        return _json_response({"path": path})
 
     return handle
 

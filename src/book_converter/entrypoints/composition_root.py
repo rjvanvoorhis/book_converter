@@ -1,4 +1,5 @@
 import dataclasses
+import pathlib
 
 from book_converter.features.speech_generation import (
     commands as speech_generation_commands,
@@ -18,11 +19,13 @@ from book_converter.features.text_extraction import (
 from book_converter.infrastructure.speech_generation import (
     book_repository,
     extracted_text_book_repository,
+    ffmpeg_audio_cleaner,
     ffmpeg_bundler,
     in_memory_task_store,
     kokoro_tts_provider,
     pocket_tts_provider,
     quote_dialogue_segmenter,
+    resemble_enhance_audio_cleaner,
     text_annotator,
 )
 from book_converter.infrastructure.text_extraction import (
@@ -102,6 +105,28 @@ def build_container() -> Container:
         "pocket-tts": pocket_tts_provider.PocketTtsProvider(),
     }
 
+    # Voice-sample cleaners: ffmpeg is always available (a hard dependency
+    # of this project already); resemble-enhance needs its own isolated
+    # Python 3.11 environment (see resemble_enhance_audio_cleaner.py for
+    # why) - a standalone uv project under audio-clean-worker/ with its own
+    # pyproject.toml/uv.lock, set up by running `uv sync` there. A fresh
+    # checkout won't have that .venv until someone does, so this cleaner is
+    # only registered - and only shows up as an option in the UI - once it
+    # actually exists.
+    project_root = pathlib.Path(__file__).resolve().parents[3]
+    resemble_enhance_python = str(
+        project_root / "audio-clean-worker" / ".venv" / "bin" / "python"
+    )
+    audio_cleaners = {"ffmpeg": ffmpeg_audio_cleaner.FfmpegAudioCleaner()}
+    if resemble_enhance_audio_cleaner.ResembleEnhanceAudioCleaner.is_available(
+        resemble_enhance_python
+    ):
+        for mode in ("enhance", "denoise"):
+            cleaner = resemble_enhance_audio_cleaner.ResembleEnhanceAudioCleaner(
+                resemble_enhance_python, mode=mode
+            )
+            audio_cleaners[cleaner.id] = cleaner
+
     # Create book repositories for both ebook and extracted text sources
     book_repositories_by_source = {
         source: book_repository.EbookBookRepository(
@@ -178,6 +203,7 @@ def build_container() -> Container:
                 bundle_initializer,
                 dialogue_segmenter,
                 audiobook_task_store,
+                audio_cleaners,
             ),
         ],
     )

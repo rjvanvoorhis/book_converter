@@ -21,7 +21,7 @@
             <span class="name">{{ entry.name }}</span>
           </li>
         } @empty {
-          <li class="empty">No subfolders or ebook files here.</li>
+          <li class="empty">{{ emptyLabel }}</li>
         }
       </ul>
     </div>

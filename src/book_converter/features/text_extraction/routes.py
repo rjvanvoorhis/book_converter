@@ -105,8 +105,10 @@ def _copyedit_handler(
 def _browse_files_handler() -> api.Handler:
     def handle(request: api.Request) -> api.Response:
         path = _query_value(request, "path", None)
+        extensions_param = _query_value(request, "extensions", None)
+        extensions = tuple(extensions_param.split(",")) if extensions_param else None
         try:
-            return _json_response(filesystem_browser.browse(path))
+            return _json_response(filesystem_browser.browse(path, extensions))
         except (FileNotFoundError, NotADirectoryError) as exc:
             return _json_error_response(str(exc), 404)
 

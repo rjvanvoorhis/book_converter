@@ -1,0 +1,15 @@
+[project]
+name = "audio-clean-worker"
+version = "0.1.0"
+description = """\
+Isolated environment for resemble-enhance, invoked as a subprocess by \
+ResembleEnhanceAudioCleaner (../src/book_converter/infrastructure/speech_generation/\
+resemble_enhance_audio_cleaner.py). Kept separate from the main project because \
+resemble-enhance pins torch==2.1.1, which has no wheels for the main project's \
+Python version - this pins to a version that satisfies it instead.\
+"""
+requires-python = ">=3.11,<3.12"
+dependencies = ["resemble-enhance==0.0.1"]
+
+[tool.uv]
+package = false

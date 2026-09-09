@@ -11,8 +11,14 @@ export class FileBrowserApiService {
 
   constructor(private readonly http: HttpClient) {}
 
-  browse(path?: string): Observable<FileBrowserListing> {
-    const params = path ? new HttpParams().set('path', path) : undefined;
+  browse(path?: string, extensions?: string[]): Observable<FileBrowserListing> {
+    let params = new HttpParams();
+    if (path) {
+      params = params.set('path', path);
+    }
+    if (extensions?.length) {
+      params = params.set('extensions', extensions.join(','));
+    }
     return this.http.get<FileBrowserListing>(`${this.baseUrl}/files/browse`, { params });
   }
 }
