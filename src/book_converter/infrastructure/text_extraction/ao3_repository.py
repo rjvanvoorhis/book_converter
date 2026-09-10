@@ -1,6 +1,7 @@
 import dataclasses
 import json
 import logging
+import pathlib
 import re
 import time
 
@@ -19,13 +20,29 @@ _WORK_ID = re.compile(r"/works/(\d+)")
 # unreachable even though the site is otherwise up.
 _RETRYABLE_STATUS_CODES = {500, 502, 503, 504, *range(520, 531)}
 
+# Every CLI invocation (book-converter load/extract-chapter) starts a fresh
+# process, so without caching, a session that logs in would re-run the full
+# login handshake on every single call - slow, and it hammers AO3's login
+# endpoint enough to make it flaky. Cache the logged-in session's cookies
+# here instead and only re-login when they've actually expired.
+_DEFAULT_SESSION_CACHE_PATH = pathlib.Path("ao3_session_cache.json")
 
-@dataclasses.dataclass(frozen=True)
+
+@dataclasses.dataclass
 class AO3EbookRepository:
     base_url: str = "https://archiveofourown.org"
     timeout: float = 60.0
-    max_retries: int = 3
+    max_retries: int = 5
     retry_backoff_seconds: float = 2.0
+    # Optional AO3 account credentials - unlocks works restricted to
+    # registered users. Anonymous (both None) works exactly as before.
+    username: str | None = None
+    password: str | None = None
+    session_cache_path: pathlib.Path = _DEFAULT_SESSION_CACHE_PATH
+
+    _session: requests.Session | None = dataclasses.field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     def get_book(self, identifier: str) -> entities.RawBook:
         kind, value = _parse_identifier(identifier)
@@ -73,10 +90,11 @@ class AO3EbookRepository:
         return response.text
 
     def _get(self, url: str, params: dict | None = None) -> requests.Response:
+        session = self._get_session()
         attempts = max(1, self.max_retries)
         for attempt in range(1, attempts + 1):
             try:
-                response = requests.get(url, params=params, timeout=self.timeout)
+                response = session.get(url, params=params, timeout=self.timeout)
             except requests.RequestException:
                 if attempt == attempts:
                     raise
@@ -102,6 +120,121 @@ class AO3EbookRepository:
             time.sleep(self.retry_backoff_seconds * attempt)
 
         raise AssertionError("unreachable")
+
+    def _get_session(self) -> requests.Session:
+        if self._session is not None:
+            return self._session
+        if not (self.username and self.password):
+            self._session = requests.Session()
+            return self._session
+
+        session = requests.Session()
+        if self._load_cached_cookies(session) and self._is_logged_in(session):
+            self._session = session
+            return self._session
+
+        session = self._log_in()
+        if self._is_logged_in(session):
+            self._save_cookies(session)
+        self._session = session
+        return self._session
+
+    def _log_in(self) -> requests.Session:
+        """Log in with the configured AO3 account so works restricted to
+        registered users become fetchable. Falls back to an anonymous
+        session (same behavior as before credentials existed) if the login
+        form can't be found or AO3 rejects the credentials - login is a
+        nice-to-have, not something that should break extraction. Retries
+        the whole GET-then-POST handshake like `_get` does, since AO3's
+        Cloudflare-fronted origin returns transient 5xx/52x errors often
+        enough that a single blip shouldn't be treated as a hard failure.
+        """
+        attempts = max(1, self.max_retries)
+        for attempt in range(1, attempts + 1):
+            session = requests.Session()
+            try:
+                login_page = session.get(
+                    f"{self.base_url}/users/login", timeout=self.timeout
+                )
+                if login_page.status_code in _RETRYABLE_STATUS_CODES:
+                    raise requests.HTTPError(
+                        f"{login_page.status_code} fetching login page",
+                        response=login_page,
+                    )
+                login_page.raise_for_status()
+
+                tree = html_text.parse_html(login_page.text)
+                form = next(iter(tree.xpath('//form[@id="new_user"]')), None)
+                token_input = (
+                    form.xpath('.//input[@name="authenticity_token"]')
+                    if form is not None
+                    else []
+                )
+                if not token_input:
+                    logger.warning("Could not find AO3 login form; continuing without login")
+                    return session
+
+                response = session.post(
+                    f"{self.base_url}/users/login",
+                    data={
+                        "user[login]": self.username,
+                        "user[password]": self.password,
+                        "authenticity_token": token_input[0].get("value"),
+                    },
+                    timeout=self.timeout,
+                )
+                if response.status_code in _RETRYABLE_STATUS_CODES:
+                    raise requests.HTTPError(
+                        f"{response.status_code} posting login", response=response
+                    )
+                response.raise_for_status()
+
+                if "/users/logout" not in response.text:
+                    logger.warning(
+                        "AO3 login did not appear to succeed (check credentials); "
+                        "continuing without login"
+                    )
+                return session
+            except requests.RequestException:
+                if attempt == attempts:
+                    logger.warning(
+                        "AO3 login failed after %d attempt(s); continuing without login",
+                        attempts,
+                    )
+                    return session
+                logger.warning(
+                    "AO3 login request failed (attempt %d/%d), retrying...",
+                    attempt,
+                    attempts,
+                )
+                time.sleep(self.retry_backoff_seconds * attempt)
+
+        raise AssertionError("unreachable")
+
+    def _is_logged_in(self, session: requests.Session) -> bool:
+        try:
+            response = session.get(self.base_url, timeout=self.timeout)
+        except requests.RequestException:
+            return False
+        return "/users/logout" in response.text
+
+    def _load_cached_cookies(self, session: requests.Session) -> bool:
+        if not self.session_cache_path.is_file():
+            return False
+        try:
+            cookies = json.loads(self.session_cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        session.cookies.update(cookies)
+        return True
+
+    def _save_cookies(self, session: requests.Session) -> None:
+        try:
+            self.session_cache_path.write_text(
+                json.dumps(session.cookies.get_dict()), encoding="utf-8"
+            )
+        except OSError:
+            logger.warning("Could not cache AO3 session cookies at '%s'", self.session_cache_path)
 
 
 def _encode(payload: dict) -> bytes:

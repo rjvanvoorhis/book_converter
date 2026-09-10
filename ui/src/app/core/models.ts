@@ -188,3 +188,53 @@ export interface AudioCleanerOption {
   id: string;
   description: string;
 }
+
+export interface EbookChapterSummary {
+  id: number;
+  title: string;
+  order: number;
+  word_count: number;
+}
+
+export interface LoadEbookResult {
+  title: string;
+  author: string | null;
+  language: string | null;
+  identifier: string | null;
+  total_chapters: number;
+  total_word_count: number;
+  chapters: EbookChapterSummary[];
+}
+
+export interface ExtractTextResult {
+  destination: string;
+  total_chapters: number;
+}
+
+export interface ChapterEditDiff {
+  id: number;
+  title: string;
+  diff: string;
+}
+
+export interface CopyEditResult {
+  destination: string;
+  chapters: ChapterEditDiff[];
+}
+
+export type TextReviewFlag = 'good' | 'bad';
+
+export interface ExtractedTextSummary {
+  path: string;
+  title: string;
+  author: string | null;
+  chapter_count: number;
+  review_flag: TextReviewFlag | null;
+  review_note: string | null;
+}
+
+export interface SaveTextReviewResult {
+  path: string;
+  flag: TextReviewFlag | null;
+  note: string | null;
+}

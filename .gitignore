@@ -8,3 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Plaintext AO3 password - see ao3_credentials.example.json
+ao3_credentials.json
+
+# Cached AO3 login session cookies - equivalent to a login token
+ao3_session_cache.json

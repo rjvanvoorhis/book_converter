@@ -1,4 +1,5 @@
 import dataclasses
+import json
 import pathlib
 
 from book_converter.features.speech_generation import (
@@ -32,6 +33,7 @@ from book_converter.infrastructure.text_extraction import (
     ao3_converter,
     ao3_repository,
     azw3_converter,
+    caching_ebook_repository,
     dispatching_converter,
     epub_converter,
     extracted_text_saver,
@@ -42,6 +44,20 @@ from book_converter.infrastructure.text_extraction import (
     lm_studio_copy_editor,
 )
 from book_converter.presentation import api, cli
+
+# Gitignored, optional - see ao3_credentials.example.json. Not committed
+# since it holds a plaintext AO3 password.
+_AO3_CREDENTIALS_PATH = pathlib.Path("ao3_credentials.json")
+
+
+def _load_ao3_credentials() -> tuple[str | None, str | None]:
+    if not _AO3_CREDENTIALS_PATH.is_file():
+        return None, None
+    try:
+        data = json.loads(_AO3_CREDENTIALS_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None, None
+    return data.get("username") or None, data.get("password") or None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -59,10 +75,19 @@ def build_container() -> Container:
             ffnet_converter.FfNetHtmlConverter(),
         ]
     )
+    ao3_username, ao3_password = _load_ao3_credentials()
+    # Wrapped so the UI's Load -> Review -> Save for later flow (and the
+    # per-chapter viewer) hit the source once instead of once per step -
+    # see caching_ebook_repository for why.
     ebook_repositories = {
-        "file": filesystem_repository.FilesystemEbookRepository(),
-        "ao3": ao3_repository.AO3EbookRepository(),
-        "ffnet": ffnet_repository.FfNetEbookRepository(),
+        source: caching_ebook_repository.CachingEbookRepository(repository=repository)
+        for source, repository in {
+            "file": filesystem_repository.FilesystemEbookRepository(),
+            "ao3": ao3_repository.AO3EbookRepository(
+                username=ao3_username, password=ao3_password
+            ),
+            "ffnet": ffnet_repository.FfNetEbookRepository(),
+        }.items()
     }
     text_saver = extracted_text_saver.ExtractedTextSaver()
 

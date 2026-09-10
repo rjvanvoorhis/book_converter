@@ -1,0 +1,231 @@
+<section class="page">
+  <h1>Extract Text</h1>
+  <p class="hint intro">
+    Pull a book's chapters out to plain text now, review or copyedit them whenever you like, and
+    come back to generate the audiobook later - Create Audiobook's "Extracted text folder"
+    source reads straight from what's saved here.
+  </p>
+
+  <div class="layout">
+    <div class="editor">
+      <fieldset class="section" [formGroup]="loadForm">
+        <legend>1. Load a source</legend>
+        <div class="field">
+          <label for="source">Source</label>
+          <select id="source" formControlName="source">
+            @for (option of sources; track option.value) {
+              <option [value]="option.value">{{ option.label }}</option>
+            }
+          </select>
+        </div>
+        <div class="field">
+          <label for="identifier">Identifier</label>
+          <div class="path-row">
+            <input
+              id="identifier"
+              type="text"
+              formControlName="identifier"
+              [placeholder]="identifierPlaceholder()"
+            />
+            @if (isFileSource()) {
+              <app-file-picker (fileSelected)="onFilePicked($event)"></app-file-picker>
+            }
+          </div>
+        </div>
+        <button type="button" [disabled]="loadForm.invalid || loading()" (click)="loadEbook()">
+          {{ loading() ? 'Loading…' : 'Load' }}
+        </button>
+        @if (loadError()) {
+          <span class="error">{{ loadError() }}</span>
+        }
+      </fieldset>
+
+      @if (loaded(); as book) {
+        <fieldset class="section">
+          <legend>2. Review</legend>
+          <h2>{{ book.title }}</h2>
+          <p class="hint">
+            {{ book.author || 'Unknown author' }} · {{ book.language || 'unknown language' }} ·
+            {{ book.total_chapters }} chapter(s) · {{ book.total_word_count }} words
+          </p>
+          <ul class="chapter-list">
+            @for (chapter of book.chapters; track chapter.id) {
+              <li>
+                <span class="chapter-title">{{ chapter.title }}</span>
+                <span class="chapter-words">{{ chapter.word_count }} words</span>
+              </li>
+            }
+          </ul>
+        </fieldset>
+
+        <fieldset class="section">
+          <legend>3. Save for later</legend>
+          <div class="field">
+            <label for="targetFolder">Save to folder</label>
+            <input id="targetFolder" type="text" [formControl]="targetFolder" />
+          </div>
+          <button
+            type="button"
+            class="btn-primary"
+            [disabled]="targetFolder.invalid || saving()"
+            (click)="saveForLater()"
+          >
+            {{ saving() ? 'Saving…' : 'Save for later' }}
+          </button>
+          @if (saveError()) {
+            <span class="error">{{ saveError() }}</span>
+          }
+          @if (savedDestination(); as destination) {
+            <p class="hint">Saved to {{ destination }}.</p>
+          }
+        </fieldset>
+      }
+    </div>
+
+    <div class="library">
+      <div class="library-header">
+        <h2>Saved for later</h2>
+        <button type="button" [disabled]="libraryLoading()" (click)="loadLibrary()">
+          {{ libraryLoading() ? 'Loading…' : 'Refresh' }}
+        </button>
+      </div>
+      <div class="field">
+        <label for="libraryFolder">Folder</label>
+        <input
+          id="libraryFolder"
+          type="text"
+          [formControl]="libraryFolder"
+          (change)="loadLibrary()"
+        />
+      </div>
+      @if (libraryError()) {
+        <p class="error">{{ libraryError() }}</p>
+      }
+      <ul class="text-list">
+        @for (item of library(); track item.path) {
+          <li class="text-item">
+            <button type="button" class="text-info" (click)="openReview(item)">
+              <span class="name-row">
+                <span class="name">{{ item.title }}</span>
+                @if (item.review_flag === 'good') {
+                  <span class="review-badge good" title="Flagged good">★ Good</span>
+                } @else if (item.review_flag === 'bad') {
+                  <span class="review-badge bad" title="Flagged bad">✕ Bad</span>
+                }
+              </span>
+              <span class="meta">
+                {{ item.author || 'Unknown author' }} · {{ item.chapter_count }} chapter(s)
+              </span>
+            </button>
+            <div class="text-item-actions">
+              <button type="button" (click)="copyPath(item.path)">
+                {{ copiedPath() === item.path ? 'Copied!' : 'Copy path' }}
+              </button>
+              <button type="button" (click)="toggleCopyedit(item.path)">
+                {{ isCopyeditOpen(item.path) ? 'Close' : 'Copyedit…' }}
+              </button>
+              <button type="button" class="btn-danger" (click)="deleteExtractedText(item)">
+                Delete
+              </button>
+            </div>
+
+            @if (isCopyeditOpen(item.path)) {
+              <div class="copyedit-panel">
+                <div class="copyedit-controls">
+                  <select
+                    [value]="editorFor(item.path)"
+                    (change)="setEditorFor(item.path, $any($event.target).value)"
+                  >
+                    @for (option of copyEditors; track option.value) {
+                      <option [value]="option.value">{{ option.label }}</option>
+                    }
+                  </select>
+                  <button
+                    type="button"
+                    [disabled]="isCopyediting(item.path)"
+                    (click)="runCopyedit(item.path)"
+                  >
+                    {{ isCopyediting(item.path) ? 'Copyediting…' : 'Run copyedit' }}
+                  </button>
+                </div>
+                @if (copyeditError()) {
+                  <span class="error">{{ copyeditError() }}</span>
+                }
+                @if (changedChaptersFor(item.path).length > 0) {
+                  <p class="hint">
+                    {{ changedChaptersFor(item.path).length }} chapter(s) changed:
+                  </p>
+                  @for (chapter of changedChaptersFor(item.path); track chapter.id) {
+                    <details class="chapter-diff">
+                      <summary>{{ chapter.title }}</summary>
+                      <pre>{{ chapter.diff }}</pre>
+                    </details>
+                  }
+                }
+              </div>
+            }
+          </li>
+        } @empty {
+          <li class="empty">Nothing saved for later yet.</li>
+        }
+      </ul>
+    </div>
+  </div>
+
+  @if (reviewingItem(); as item) {
+    <div class="modal-backdrop" (click)="closeReview()">
+      <div class="modal" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h2>{{ item.title }}</h2>
+          <button type="button" class="modal-close" (click)="closeReview()">✕</button>
+        </div>
+        <p class="hint">{{ item.author || 'Unknown author' }} · {{ item.chapter_count }} chapter(s)</p>
+
+        <div class="review-flags">
+          <button
+            type="button"
+            class="flag-btn good"
+            [class.active]="reviewFlagDraft() === 'good'"
+            (click)="toggleReviewFlag('good')"
+          >
+            ★ Good
+          </button>
+          <button
+            type="button"
+            class="flag-btn bad"
+            [class.active]="reviewFlagDraft() === 'bad'"
+            (click)="toggleReviewFlag('bad')"
+          >
+            ✕ Bad
+          </button>
+        </div>
+
+        <div class="field">
+          <label for="reviewNote">Notes (optional)</label>
+          <textarea
+            id="reviewNote"
+            rows="5"
+            placeholder="What worked (or didn't)? Voice, structure, characters, pacing…"
+            [formControl]="reviewNoteDraft"
+          ></textarea>
+        </div>
+
+        @if (reviewError()) {
+          <span class="error">{{ reviewError() }}</span>
+        }
+
+        <div class="modal-actions">
+          <button type="button" (click)="closeReview()">Cancel</button>
+          <button
+            type="button"
+            class="btn-primary"
+            [disabled]="reviewSaving()"
+            (click)="saveReview()"
+          >
+            {{ reviewSaving() ? 'Saving…' : 'Save review' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</section>

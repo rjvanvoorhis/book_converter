@@ -4,10 +4,14 @@ import typing
 
 from book_converter.features.text_extraction import dto
 from book_converter.features.text_extraction import use_cases
-from book_converter.infrastructure.text_extraction import filesystem_browser
+from book_converter.infrastructure.text_extraction import (
+    extracted_text_library,
+    filesystem_browser,
+)
 from book_converter.presentation import api
 
 _UseCaseT = typing.TypeVar("_UseCaseT")
+_DEFAULT_EXTRACTED_TEXTS_FOLDER = "data/texts"
 
 
 def build_routes(
@@ -18,11 +22,11 @@ def build_routes(
 ) -> list[api.Route]:
     return [
         api.Route(
-            rule="/books/{identifier}",
+            rule="/books",
             handler=_load_ebook_handler(load_ebook_by_source),
         ),
         api.Route(
-            rule="/books/{identifier}/chapters/{chapter_id}",
+            rule="/books/chapter",
             handler=_extract_chapter_handler(extract_chapter_by_source),
         ),
         api.Route(
@@ -36,6 +40,20 @@ def build_routes(
             handler=_copyedit_handler(copyedit_by_editor),
         ),
         api.Route(
+            rule="/extracted-texts/library",
+            handler=_list_extracted_texts_handler(),
+        ),
+        api.Route(
+            rule="/extracted-texts",
+            method="DELETE",
+            handler=_delete_extracted_text_handler(),
+        ),
+        api.Route(
+            rule="/extracted-texts/review",
+            method="POST",
+            handler=_save_review_handler(),
+        ),
+        api.Route(
             rule="/files/browse",
             handler=_browse_files_handler(),
         ),
@@ -46,7 +64,9 @@ def _load_ebook_handler(
     use_cases_by_source: dict[str, use_cases.LoadEbookUseCase],
 ) -> api.Handler:
     def handle(request: api.Request) -> api.Response:
-        (identifier,) = request.params
+        identifier = _query_value(request, "identifier", None)
+        if not identifier:
+            return _json_error_response("Missing 'identifier' query parameter", 400)
         use_case = _resolve(
             use_cases_by_source, _query_value(request, "source", "file")
         )
@@ -60,7 +80,12 @@ def _extract_chapter_handler(
     use_cases_by_source: dict[str, use_cases.ExtractChapterUseCase],
 ) -> api.Handler:
     def handle(request: api.Request) -> api.Response:
-        identifier, chapter_id = request.params
+        identifier = _query_value(request, "identifier", None)
+        chapter_id = _query_value(request, "chapter_id", None)
+        if not identifier or chapter_id is None:
+            return _json_error_response(
+                "Required query params: identifier, chapter_id", 400
+            )
         use_case = _resolve(
             use_cases_by_source, _query_value(request, "source", "file")
         )
@@ -98,6 +123,48 @@ def _copyedit_handler(
         )
         output = use_case.execute(dto.CopyEditInput(identifier=payload["identifier"]))
         return _json_response(output)
+
+    return handle
+
+
+def _list_extracted_texts_handler() -> api.Handler:
+    def handle(request: api.Request) -> api.Response:
+        folder = _query_value(request, "folder", _DEFAULT_EXTRACTED_TEXTS_FOLDER)
+        return _json_response(
+            {"texts": extracted_text_library.list_extracted_texts(folder)}
+        )
+
+    return handle
+
+
+def _delete_extracted_text_handler() -> api.Handler:
+    def handle(request: api.Request) -> api.Response:
+        path = _query_value(request, "path", None)
+        if not path:
+            return _json_error_response("Missing 'path' query parameter", 400)
+        extracted_text_library.delete_extracted_text(path)
+        return _json_response({"path": path})
+
+    return handle
+
+
+def _save_review_handler() -> api.Handler:
+    def handle(request: api.Request) -> api.Response:
+        payload = json.loads(request.content)
+        path = payload.get("path")
+        if not path:
+            return _json_error_response("Missing 'path'", 400)
+        flag = payload.get("flag")
+        if flag is not None and flag not in extracted_text_library.REVIEW_FLAGS:
+            return _json_error_response(
+                f"'flag' must be one of {extracted_text_library.REVIEW_FLAGS} or null",
+                400,
+            )
+        try:
+            review = extracted_text_library.save_review(path, flag, payload.get("note"))
+        except FileNotFoundError as exc:
+            return _json_error_response(str(exc), 404)
+        return _json_response({"path": path, **review})
 
     return handle
 

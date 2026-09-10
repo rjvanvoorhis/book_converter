@@ -21,6 +21,9 @@ export const DEFAULT_PRONUNCIATIONS_FOLDER = 'pronunciation-dicts';
 // Matches the backend's default in routes.py.
 export const DEFAULT_VOICE_SAMPLES_FOLDER = 'data/voice_samples';
 
+// Matches the backend's default in routes.py.
+export const DEFAULT_EXTRACTED_TEXTS_FOLDER = 'data/texts';
+
 /**
  * A compact IPA palette covering the symbols most English pronunciation
  * respellings need, grouped for the picker UI. Most keyboards can't type
@@ -65,4 +68,17 @@ export const BOOK_SOURCES: BookSourceOption[] = [
     label: 'Extracted text folder',
     identifierPlaceholder: 'Path to the extracted text folder'
   }
+];
+
+// Only the sources that can actually be *extracted from* - unlike
+// BOOK_SOURCES (used to pick where an audiobook's text comes from,
+// including an already-extracted folder), extracting from extracted text
+// isn't a registered use case backend-side.
+export const EXTRACTABLE_BOOK_SOURCES: BookSourceOption[] = BOOK_SOURCES.filter(
+  (source) => source.value !== 'extracted'
+);
+
+export const COPY_EDITORS: SelectOption[] = [
+  { value: 'languagetool', label: 'LanguageTool' },
+  { value: 'lmstudio', label: 'LM Studio' }
 ];
