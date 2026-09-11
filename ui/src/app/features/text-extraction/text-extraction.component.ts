@@ -39,14 +39,19 @@ export class TextExtractionComponent implements OnInit {
   readonly loadError = signal<string | null>(null);
   readonly loaded = signal<LoadEbookResult | null>(null);
 
-  readonly targetFolder = this.formBuilder.nonNullable.control('', Validators.required);
+  // Single top-level folder that both drives where "Save for later" writes
+  // a book's slug subfolder to and where the "Saved for later" library
+  // reads from - having these as two independently-editable folders let
+  // them drift apart, so a save could silently land somewhere the library
+  // wasn't looking.
+  readonly textsFolder = this.formBuilder.nonNullable.control(
+    DEFAULT_EXTRACTED_TEXTS_FOLDER,
+    Validators.required
+  );
   readonly saving = signal(false);
   readonly saveError = signal<string | null>(null);
   readonly savedDestination = signal<string | null>(null);
 
-  readonly libraryFolder = this.formBuilder.nonNullable.control(
-    DEFAULT_EXTRACTED_TEXTS_FOLDER
-  );
   readonly library = signal<ExtractedTextSummary[]>([]);
   readonly libraryLoading = signal(false);
   readonly libraryError = signal<string | null>(null);
@@ -77,6 +82,10 @@ export class TextExtractionComponent implements OnInit {
     return this.loadForm.controls.source.value === 'file';
   }
 
+  isFfnetSource(): boolean {
+    return this.loadForm.controls.source.value === 'ffnet';
+  }
+
   onFilePicked(path: string): void {
     this.loadForm.controls.identifier.setValue(path);
   }
@@ -97,9 +106,6 @@ export class TextExtractionComponent implements OnInit {
       next: (result) => {
         this.loading.set(false);
         this.loaded.set(result);
-        this.targetFolder.setValue(
-          `${DEFAULT_EXTRACTED_TEXTS_FOLDER}/${_slugify(result.title || identifier)}`
-        );
       },
       error: (err) => {
         this.loading.set(false);
@@ -108,9 +114,17 @@ export class TextExtractionComponent implements OnInit {
     });
   }
 
+  /** Where "Save for later" will write the currently loaded book to. */
+  destinationFolder(): string {
+    const loaded = this.loaded();
+    const identifier = this.loadForm.controls.identifier.value;
+    const folder = this.textsFolder.value.trim() || DEFAULT_EXTRACTED_TEXTS_FOLDER;
+    return `${folder}/${_slugify(loaded?.title || identifier)}`;
+  }
+
   saveForLater(): void {
     const loaded = this.loaded();
-    if (!loaded || this.targetFolder.invalid) {
+    if (!loaded || this.textsFolder.invalid) {
       return;
     }
     const { identifier, source } = this.loadForm.getRawValue();
@@ -119,7 +133,7 @@ export class TextExtractionComponent implements OnInit {
     this.saveError.set(null);
     this.savedDestination.set(null);
 
-    this.api.extractText(identifier, this.targetFolder.value.trim(), source).subscribe({
+    this.api.extractText(identifier, this.destinationFolder(), source).subscribe({
       next: (result) => {
         this.saving.set(false);
         this.savedDestination.set(result.destination);
@@ -133,7 +147,7 @@ export class TextExtractionComponent implements OnInit {
   }
 
   loadLibrary(): void {
-    const folder = this.libraryFolder.value.trim() || DEFAULT_EXTRACTED_TEXTS_FOLDER;
+    const folder = this.textsFolder.value.trim() || DEFAULT_EXTRACTED_TEXTS_FOLDER;
     this.libraryLoading.set(true);
     this.libraryError.set(null);
     this.api.listExtractedTexts(folder).subscribe({

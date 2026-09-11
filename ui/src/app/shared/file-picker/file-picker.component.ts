@@ -18,6 +18,8 @@ export class FilePickerComponent {
   @Input() startPath?: string;
   /** File extensions (no leading dot) to show; defaults to ebook formats server-side. */
   @Input() extensions?: string[];
+  /** Pick a folder itself (e.g. an extracted-text folder) instead of a file inside it. */
+  @Input() pickDirectories = false;
   @Input() emptyLabel = 'No subfolders or ebook files here.';
   @Output() fileSelected = new EventEmitter<string>();
 
@@ -58,10 +60,19 @@ export class FilePickerComponent {
   select(entry: FileBrowserEntry): void {
     if (entry.is_dir) {
       this.browse(entry.path);
-    } else {
+    } else if (!this.pickDirectories) {
       this.fileSelected.emit(entry.path);
       this.open.set(false);
     }
+  }
+
+  selectCurrentFolder(): void {
+    const path = this.path();
+    if (!path) {
+      return;
+    }
+    this.fileSelected.emit(path);
+    this.open.set(false);
   }
 }
 

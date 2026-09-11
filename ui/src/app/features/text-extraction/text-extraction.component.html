@@ -6,6 +6,19 @@
     source reads straight from what's saved here.
   </p>
 
+  <div class="field texts-folder-field">
+    <label for="textsFolder">Texts folder</label>
+    <input
+      id="textsFolder"
+      type="text"
+      [formControl]="textsFolder"
+      (change)="loadLibrary()"
+    />
+    <p class="hint">
+      Where "Save for later" writes to and the library below reads from.
+    </p>
+  </div>
+
   <div class="layout">
     <div class="editor">
       <fieldset class="section" [formGroup]="loadForm">
@@ -29,6 +42,13 @@
             />
             @if (isFileSource()) {
               <app-file-picker (fileSelected)="onFilePicked($event)"></app-file-picker>
+            }
+            @if (isFfnetSource()) {
+              <app-file-picker
+                [extensions]="['json']"
+                emptyLabel="No .ffnet.json exports here."
+                (fileSelected)="onFilePicked($event)"
+              ></app-file-picker>
             }
           </div>
         </div>
@@ -60,14 +80,11 @@
 
         <fieldset class="section">
           <legend>3. Save for later</legend>
-          <div class="field">
-            <label for="targetFolder">Save to folder</label>
-            <input id="targetFolder" type="text" [formControl]="targetFolder" />
-          </div>
+          <p class="hint">Will save to {{ destinationFolder() }}.</p>
           <button
             type="button"
             class="btn-primary"
-            [disabled]="targetFolder.invalid || saving()"
+            [disabled]="textsFolder.invalid || saving()"
             (click)="saveForLater()"
           >
             {{ saving() ? 'Saving…' : 'Save for later' }}
@@ -88,15 +105,6 @@
         <button type="button" [disabled]="libraryLoading()" (click)="loadLibrary()">
           {{ libraryLoading() ? 'Loading…' : 'Refresh' }}
         </button>
-      </div>
-      <div class="field">
-        <label for="libraryFolder">Folder</label>
-        <input
-          id="libraryFolder"
-          type="text"
-          [formControl]="libraryFolder"
-          (change)="loadLibrary()"
-        />
       </div>
       @if (libraryError()) {
         <p class="error">{{ libraryError() }}</p>

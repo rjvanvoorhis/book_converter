@@ -13,6 +13,7 @@ import { PronunciationApiService } from '../../core/pronunciation-api.service';
 import {
   BOOK_SOURCES,
   DEFAULT_AUDIOBOOK_FOLDER,
+  DEFAULT_EXTRACTED_TEXTS_FOLDER,
   DEFAULT_PRONUNCIATIONS_FOLDER,
   TTS_PROVIDERS
 } from '../../core/constants';
@@ -34,6 +35,7 @@ export class CreateAudiobookComponent implements OnInit, OnDestroy {
 
   readonly sources = BOOK_SOURCES;
   readonly ttsProviders = TTS_PROVIDERS;
+  readonly defaultExtractedTextsFolder = DEFAULT_EXTRACTED_TEXTS_FOLDER;
 
   readonly pronunciationDicts = signal<PronunciationDictSummary[]>([]);
 
@@ -132,6 +134,14 @@ export class CreateAudiobookComponent implements OnInit, OnDestroy {
 
   isFileSource(): boolean {
     return this.form.controls.source.value === 'file';
+  }
+
+  isFfnetSource(): boolean {
+    return this.form.controls.source.value === 'ffnet';
+  }
+
+  isExtractedSource(): boolean {
+    return this.form.controls.source.value === 'extracted';
   }
 
   onFilePicked(path: string): void {

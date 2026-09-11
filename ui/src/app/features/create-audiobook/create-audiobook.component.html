@@ -23,6 +23,21 @@
         @if (isFileSource()) {
           <app-file-picker (fileSelected)="onFilePicked($event)"></app-file-picker>
         }
+        @if (isFfnetSource()) {
+          <app-file-picker
+            [extensions]="['json']"
+            emptyLabel="No .ffnet.json exports here."
+            (fileSelected)="onFilePicked($event)"
+          ></app-file-picker>
+        }
+        @if (isExtractedSource()) {
+          <app-file-picker
+            [pickDirectories]="true"
+            [startPath]="defaultExtractedTextsFolder"
+            emptyLabel="No subfolders here."
+            (fileSelected)="onFilePicked($event)"
+          ></app-file-picker>
+        }
       </div>
     </div>
 
