@@ -11,8 +11,7 @@ import {
 import {
   ChapterEditDiff,
   ExtractedTextSummary,
-  LoadEbookResult,
-  TextReviewFlag
+  LoadEbookResult
 } from '../../core/models';
 
 @Component({
@@ -62,12 +61,6 @@ export class TextExtractionComponent implements OnInit {
   readonly copyeditResultByPath = signal<Record<string, ChapterEditDiff[]>>({});
 
   readonly copiedPath = signal<string | null>(null);
-
-  readonly reviewingItem = signal<ExtractedTextSummary | null>(null);
-  readonly reviewFlagDraft = signal<TextReviewFlag | null>(null);
-  readonly reviewNoteDraft = this.formBuilder.nonNullable.control('');
-  readonly reviewSaving = signal(false);
-  readonly reviewError = signal<string | null>(null);
 
   ngOnInit(): void {
     this.loadLibrary();
@@ -224,50 +217,6 @@ export class TextExtractionComponent implements OnInit {
     });
   }
 
-  openReview(item: ExtractedTextSummary): void {
-    this.reviewingItem.set(item);
-    this.reviewFlagDraft.set(item.review_flag);
-    this.reviewNoteDraft.setValue(item.review_note ?? '');
-    this.reviewError.set(null);
-  }
-
-  closeReview(): void {
-    this.reviewingItem.set(null);
-    this.reviewSaving.set(false);
-  }
-
-  toggleReviewFlag(flag: TextReviewFlag): void {
-    this.reviewFlagDraft.update((current) => (current === flag ? null : flag));
-  }
-
-  saveReview(): void {
-    const item = this.reviewingItem();
-    if (!item || this.reviewSaving()) {
-      return;
-    }
-    const note = this.reviewNoteDraft.value.trim() || null;
-    const flag = this.reviewFlagDraft();
-
-    this.reviewSaving.set(true);
-    this.reviewError.set(null);
-    this.api.saveTextReview(item.path, flag, note).subscribe({
-      next: (result) => {
-        this.reviewSaving.set(false);
-        this.library.update((items) =>
-          items.map((existing) =>
-            existing.path === result.path
-              ? { ...existing, review_flag: result.flag, review_note: result.note }
-              : existing
-          )
-        );
-        this.closeReview();
-      },
-      error: (err) => {
-        this.reviewSaving.set(false);
-        this.reviewError.set(_errorMessage(err));
-      }
-    });
-  }
 }
 
 function _slugify(title: string): string {

@@ -13,8 +13,10 @@ dependencies = [
     "matplotlib>=3.3.4",
     "mobi>=0.3.2",
     "numpy>=1.19.5",
+    "python-dotenv>=1.0.0",
     "python-multipart>=0.0.5",
     "requests>=2.27.1",
+    "smbprotocol>=1.17.0",
     "typer>=0.10.0",
     "uvicorn>=0.16.0",
 ]
@@ -24,10 +26,21 @@ book-converter = "book_converter:main"
 book-converter-api = "book_converter.entrypoints.api:main"
 book-converter-ui = "book_converter.entrypoints.ui:main"
 book-converter-setup-audio-clean = "book_converter.entrypoints.setup_audio_clean_worker:main"
+book-converter-setup-mount-user = "book_converter.entrypoints.setup_audiobookshelf_mount_user:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
-dev = []
+dev = [
+    "pytest>=8.0.0",
+    "pytest-mock>=3.14.0",
+    "ruff>=0.16.0",
+]
+
+[tool.ruff]
+line-length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

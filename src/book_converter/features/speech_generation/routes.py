@@ -280,7 +280,9 @@ def _resolve_provider_and_source(
 
     if tts_provider_name not in tts_providers:
         available = ", ".join(sorted(tts_providers.keys()))
-        error_msg = f"Unknown TTS provider '{tts_provider_name}'. Available: {available}"
+        error_msg = (
+            f"Unknown TTS provider '{tts_provider_name}'. Available: {available}"
+        )
         return _json_error_response(error_msg, 400)
 
     if source not in book_repositories_by_source:
@@ -372,7 +374,9 @@ def _get_sample_audio_handler(
 def _sniff_audio_content_type(data: bytes) -> str:
     if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
         return "audio/wav"
-    if data[:3] == b"ID3" or (len(data) > 1 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0):
+    if data[:3] == b"ID3" or (
+        len(data) > 1 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0
+    ):
         return "audio/mpeg"
     if len(data) >= 8 and data[4:8] == b"ftyp":
         return "audio/mp4"
@@ -536,8 +540,12 @@ def _discard_edit_handler() -> api.Handler:
         path = _query_value(request, "path", None)
         index = _query_value(request, "segment_index", None)
         if not path or index is None:
-            return _json_error_response("Required query params: path, segment_index", 400)
-        return _json_response({"edits": pending_edit_store.discard_edit(path, int(index))})
+            return _json_error_response(
+                "Required query params: path, segment_index", 400
+            )
+        return _json_response(
+            {"edits": pending_edit_store.discard_edit(path, int(index))}
+        )
 
     return handle
 
@@ -547,7 +555,9 @@ def _get_edit_audio_handler() -> api.Handler:
         path = _query_value(request, "path", None)
         index = _query_value(request, "segment_index", None)
         if not path or index is None:
-            return _json_error_response("Required query params: path, segment_index", 400)
+            return _json_error_response(
+                "Required query params: path, segment_index", 400
+            )
         audio_path = pending_edit_store.edit_audio_path(path, int(index))
         if not audio_path.is_file():
             return _json_error_response(f"No staged audio for segment {index}", 404)
@@ -582,7 +592,9 @@ def _stage_regeneration_handler(
         index = payload.get("segment_index")
         text = payload.get("text")
         if not path or index is None or not text:
-            return _json_error_response("Required fields: path, segment_index, text", 400)
+            return _json_error_response(
+                "Required fields: path, segment_index, text", 400
+            )
 
         try:
             transcript = audiobook_library.read_transcript(path)
@@ -620,7 +632,9 @@ def _stage_regeneration_handler(
                 edits = pending_edit_store.stage_regeneration(
                     path, int(index), text, audio_bytes
                 )
-                task_store.complete(task_id, {"segment_index": int(index), "edits": edits})
+                task_store.complete(
+                    task_id, {"segment_index": int(index), "edits": edits}
+                )
             except Exception as exc:  # noqa: BLE001 - reported via the task, not raised
                 task_store.fail(task_id, str(exc))
 
@@ -688,7 +702,10 @@ def _apply_edits_handler(
                 artifact_store.clear_cuts(path)
                 task_store.complete(
                     task_id,
-                    {"destination": destination, "segments_applied": len(edited_indices)},
+                    {
+                        "destination": destination,
+                        "segments_applied": len(edited_indices),
+                    },
                 )
             except interfaces.TaskCancelled:
                 task_store.mark_cancelled(task_id)

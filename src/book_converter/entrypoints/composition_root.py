@@ -1,7 +1,11 @@
 import dataclasses
-import json
+import os
 import pathlib
 
+import dotenv
+
+from book_converter.features.media_library import routes as media_library_routes
+from book_converter.features.organization import routes as organization_routes
 from book_converter.features.speech_generation import (
     commands as speech_generation_commands,
 )
@@ -17,6 +21,13 @@ from book_converter.features.text_extraction import routes as text_extraction_ro
 from book_converter.features.text_extraction import (
     use_cases as text_extraction_use_cases,
 )
+from book_converter.infrastructure.media_library import (
+    audiobookshelf_client,
+    local_filesystem_store,
+    nas_share_store,
+    smb_file_store,
+)
+from book_converter.infrastructure.organization import group_store
 from book_converter.infrastructure.speech_generation import (
     book_repository,
     extracted_text_book_repository,
@@ -45,20 +56,6 @@ from book_converter.infrastructure.text_extraction import (
 )
 from book_converter.presentation import api, cli
 
-# Gitignored, optional - see ao3_credentials.example.json. Not committed
-# since it holds a plaintext AO3 password.
-_AO3_CREDENTIALS_PATH = pathlib.Path("ao3_credentials.json")
-
-
-def _load_ao3_credentials() -> tuple[str | None, str | None]:
-    if not _AO3_CREDENTIALS_PATH.is_file():
-        return None, None
-    try:
-        data = json.loads(_AO3_CREDENTIALS_PATH.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None, None
-    return data.get("username") or None, data.get("password") or None
-
 
 @dataclasses.dataclass(frozen=True)
 class Container:
@@ -66,7 +63,106 @@ class Container:
     routes: list[api.Route]
 
 
+def _build_media_library_file_store() -> (
+    local_filesystem_store.LocalFilesystemStore
+    | nas_share_store.NasShareStore
+    | smb_file_store.SmbFileStore
+):
+    storage = (os.environ.get("AUDIOBOOKSHELF_STORAGE") or "local").strip().lower()
+    if storage == "local":
+        return local_filesystem_store.LocalFilesystemStore()
+    if storage == "nas":
+        # Linux-only: assumes the share is (or can be, via entrypoints.
+        # setup_audiobookshelf_mount_user) mounted at the OS level. Use
+        # 'smb' instead on macOS/Windows, or on Linux without root access
+        # to set up a mount.
+        return nas_share_store.NasShareStore(
+            path_prefix_map=_parse_path_map(
+                os.environ.get("AUDIOBOOKSHELF_PATH_MAP", "")
+            ),
+            mounts=_parse_nas_mounts(os.environ.get("AUDIOBOOKSHELF_NAS_MOUNTS", "")),
+        )
+    if storage == "smb":
+        # Cross-platform (macOS/Windows/Linux): speaks SMB2/3 directly, no
+        # OS mount or elevated privileges required. `server` is just the SMB
+        # host - which share a path belongs to is derived from the path
+        # itself (see SmbFileStore's docstring), not configured here.
+        server = os.environ.get("AUDIOBOOKSHELF_SMB_SERVER")
+        username = os.environ.get("AUDIOBOOKSHELF_SMB_USERNAME")
+        password = os.environ.get("AUDIOBOOKSHELF_SMB_PASSWORD")
+        if not server or not username or not password:
+            raise ValueError(
+                "AUDIOBOOKSHELF_STORAGE=smb requires AUDIOBOOKSHELF_SMB_SERVER, "
+                "AUDIOBOOKSHELF_SMB_USERNAME and AUDIOBOOKSHELF_SMB_PASSWORD"
+            )
+        return smb_file_store.SmbFileStore(
+            server=server,
+            username=username,
+            password=password,
+            port=int(os.environ.get("AUDIOBOOKSHELF_SMB_PORT") or 445),
+            path_prefix_map=_parse_path_map(
+                os.environ.get("AUDIOBOOKSHELF_PATH_MAP", "")
+            ),
+        )
+    raise ValueError(
+        f"Unknown AUDIOBOOKSHELF_STORAGE '{storage}' - expected 'local', 'nas' or 'smb'"
+    )
+
+
+def _parse_path_map(raw: str) -> dict[str, str]:
+    """Parses AUDIOBOOKSHELF_PATH_MAP, e.g.
+    '/audiobooks=/mnt/nas/audiobooks,/podcasts=/mnt/nas/podcasts' - one
+    server-reported-prefix=local-mount-prefix pair per comma-separated
+    entry."""
+    path_map = {}
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        remote_prefix, _, local_prefix = entry.partition("=")
+        if not remote_prefix or not local_prefix:
+            raise ValueError(
+                f"Invalid AUDIOBOOKSHELF_PATH_MAP entry '{entry}' - "
+                "expected 'remote-prefix=local-prefix'"
+            )
+        path_map[remote_prefix] = local_prefix
+    return path_map
+
+
+def _parse_nas_mounts(raw: str) -> dict[str, nas_share_store.MountSpec]:
+    """Parses AUDIOBOOKSHELF_NAS_MOUNTS, e.g.
+    '/mnt/nas/audiobooks|cifs|//nas.local/audiobooks|username=svc,password=secret,vers=3.0'
+    - one 'local-mount-point|fs_type|remote' or
+    'local-mount-point|fs_type|remote|opt1,opt2' entry per ';'-separated
+    section. A local mount point with no entry here simply can't be
+    auto-mounted by RegisterFolderUseCase - it still works fine if it's
+    already mounted some other way (e.g. /etc/fstab)."""
+    mounts: dict[str, nas_share_store.MountSpec] = {}
+    for entry in raw.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        fields = entry.split("|")
+        if len(fields) not in (3, 4):
+            raise ValueError(
+                f"Invalid AUDIOBOOKSHELF_NAS_MOUNTS entry '{entry}' - expected "
+                "'local-mount-point|fs_type|remote' or "
+                "'local-mount-point|fs_type|remote|opt1,opt2'"
+            )
+        mount_point, fs_type, remote = fields[:3]
+        options = fields[3].split(",") if len(fields) == 4 and fields[3] else []
+        mounts[mount_point] = nas_share_store.MountSpec(
+            remote=remote, fs_type=fs_type, options=options
+        )
+    return mounts
+
+
 def build_container() -> Container:
+    # Optional gitignored .env (see .env.example) - a no-op if it doesn't
+    # exist, so this is safe to call unconditionally. Real environment
+    # variables already set take precedence over the file either way.
+    dotenv.load_dotenv()
+
     ebook_converter = dispatching_converter.DispatchingEbookConverter(
         converters=[
             epub_converter.EpubConverter(),
@@ -75,7 +171,8 @@ def build_container() -> Container:
             ffnet_converter.FfNetHtmlConverter(),
         ]
     )
-    ao3_username, ao3_password = _load_ao3_credentials()
+    ao3_username = os.environ.get("AO3_USERNAME") or None
+    ao3_password = os.environ.get("AO3_PASSWORD") or None
     # Wrapped so the UI's Load -> Review -> Save for later flow (and the
     # per-chapter viewer) hit the source once instead of once per step -
     # see caching_ebook_repository for why.
@@ -196,6 +293,28 @@ def build_container() -> Container:
         tts_provider=default_tts_provider
     )
 
+    # Groups staged works into series (data/organization/groups.json) - a
+    # series is bound to its media library/folder at creation and never
+    # auto-created (see organization.CreateGroupUseCase); always available,
+    # independent of whether a media library adapter is configured below.
+    organization_group_store = group_store.JsonGroupStore()
+
+    # Audiobookshelf adapter: only registered - and only shows up as a route
+    # - once a target server is actually configured, same "absent unless
+    # configured" pattern as the resemble-enhance audio cleaner above.
+    audiobookshelf_url = os.environ.get("AUDIOBOOKSHELF_URL") or None
+    audiobookshelf_api_key = os.environ.get("AUDIOBOOKSHELF_API_KEY") or None
+    media_library_route_list: list[api.Route] = []
+    if audiobookshelf_url and audiobookshelf_api_key:
+        media_library_route_list = media_library_routes.build_routes(
+            media_library=audiobookshelf_client.AudiobookshelfClient(
+                base_url=audiobookshelf_url.rstrip("/"),
+                api_key=audiobookshelf_api_key,
+                file_store=_build_media_library_file_store(),
+            ),
+            group_store=organization_group_store,
+        )
+
     return Container(
         commands=[
             *text_extraction_commands.build_commands(
@@ -220,6 +339,9 @@ def build_container() -> Container:
                 extract_chapter_by_source,
                 extract_text_by_source,
                 copyedit_by_editor,
+                default_extracted_texts_folder=os.environ.get(
+                    "EXTRACTED_TEXTS_FOLDER", "data/texts"
+                ),
             ),
             *speech_generation_routes.build_routes(
                 text_annotator.build_text_annotator,
@@ -230,5 +352,7 @@ def build_container() -> Container:
                 audiobook_task_store,
                 audio_cleaners,
             ),
+            *organization_routes.build_routes(organization_group_store),
+            *media_library_route_list,
         ],
     )

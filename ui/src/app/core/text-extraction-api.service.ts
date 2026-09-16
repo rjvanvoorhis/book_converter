@@ -7,9 +7,7 @@ import {
   CopyEditResult,
   ExtractedTextSummary,
   ExtractTextResult,
-  LoadEbookResult,
-  SaveTextReviewResult,
-  TextReviewFlag
+  LoadEbookResult
 } from './models';
 
 @Injectable({ providedIn: 'root' })
@@ -57,17 +55,5 @@ export class TextExtractionApiService {
   deleteExtractedText(path: string): Observable<void> {
     const params = new HttpParams().set('path', path);
     return this.http.delete<void>(`${this.baseUrl}/extracted-texts`, { params });
-  }
-
-  saveTextReview(
-    path: string,
-    flag: TextReviewFlag | null,
-    note: string | null
-  ): Observable<SaveTextReviewResult> {
-    return this.http.post<SaveTextReviewResult>(`${this.baseUrl}/extracted-texts/review`, {
-      path,
-      flag,
-      note
-    });
   }
 }

@@ -9,8 +9,12 @@ wheels/
 # Virtual environments
 .venv
 
-# Plaintext AO3 password - see ao3_credentials.example.json
-ao3_credentials.json
+# Plaintext credentials (AO3 login, Audiobookshelf API key, ...) - see .env.example
+.env
 
 # Cached AO3 login session cookies - equivalent to a login token
 ao3_session_cache.json
+
+# Raw scraped FanFiction.net chapter HTML - avoids re-fetching into a
+# Cloudflare rate limit on retry; not something to keep in git.
+/data/cache/

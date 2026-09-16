@@ -222,19 +222,94 @@ export interface CopyEditResult {
   chapters: ChapterEditDiff[];
 }
 
-export type TextReviewFlag = 'good' | 'bad';
-
 export interface ExtractedTextSummary {
   path: string;
   title: string;
   author: string | null;
   chapter_count: number;
-  review_flag: TextReviewFlag | null;
-  review_note: string | null;
 }
 
-export interface SaveTextReviewResult {
+export interface GroupSource {
+  type: string;
+  identifier: string;
+}
+
+export interface GroupMember {
   path: string;
-  flag: TextReviewFlag | null;
-  note: string | null;
+  // null = "in this series, but not numbered" (e.g. a side story) - never
+  // meaningful for a standalone group's members.
+  sequence: number | null;
+}
+
+export interface OrganizationGroup {
+  id: string;
+  name: string;
+  // Fixed at creation - every member imports here, no picking needed later.
+  library_id: string;
+  folder_id: string;
+  // True for the "no series" bucket: members still import to library_id/
+  // folder_id, but no series name/sequence is ever attached to them.
+  is_standalone: boolean;
+  source: GroupSource | null;
+  members: GroupMember[];
+}
+
+export interface LibraryFolder {
+  id: string;
+  path: string;
+}
+
+export interface MediaLibrarySummary {
+  id: string;
+  name: string;
+  folders: LibraryFolder[];
+}
+
+export interface MediaLibraryItem {
+  id: string;
+  title: string;
+  author: string | null;
+  series: string | null;
+  relative_path: string;
+}
+
+export interface ImportWorkRequest {
+  group_id: string;
+  source_path: string;
+  title: string;
+  author?: string | null;
+}
+
+export interface ImportWorkResult {
+  destination_path: string;
+}
+
+export interface HealthCheckResult {
+  healthy: boolean;
+  detail: string;
+}
+
+export interface SyncSeriesResult {
+  unlinked_series_names: string[];
+}
+
+export interface FolderHealth {
+  folder_id: string;
+  path: string;
+  health: HealthCheckResult;
+}
+
+export interface HealthCheckLibraryResult {
+  folders: FolderHealth[];
+}
+
+export interface MemberStatus {
+  path: string;
+  // The Audiobookshelf item id this member currently resolves to, live -
+  // null means "not there right now", never cached locally.
+  imported_item_id: string | null;
+}
+
+export interface GroupStatusResult {
+  members: MemberStatus[];
 }

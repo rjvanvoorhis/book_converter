@@ -19,6 +19,7 @@ def build_routes(
     extract_chapter_by_source: dict[str, use_cases.ExtractChapterUseCase],
     extract_text_by_source: dict[str, use_cases.ExtractTextUseCase],
     copyedit_by_editor: dict[str, use_cases.CopyEditTextUseCase],
+    default_extracted_texts_folder: str = _DEFAULT_EXTRACTED_TEXTS_FOLDER,
 ) -> list[api.Route]:
     return [
         api.Route(
@@ -41,17 +42,12 @@ def build_routes(
         ),
         api.Route(
             rule="/extracted-texts/library",
-            handler=_list_extracted_texts_handler(),
+            handler=_list_extracted_texts_handler(default_extracted_texts_folder),
         ),
         api.Route(
             rule="/extracted-texts",
             method="DELETE",
             handler=_delete_extracted_text_handler(),
-        ),
-        api.Route(
-            rule="/extracted-texts/review",
-            method="POST",
-            handler=_save_review_handler(),
         ),
         api.Route(
             rule="/files/browse",
@@ -127,9 +123,9 @@ def _copyedit_handler(
     return handle
 
 
-def _list_extracted_texts_handler() -> api.Handler:
+def _list_extracted_texts_handler(default_folder: str) -> api.Handler:
     def handle(request: api.Request) -> api.Response:
-        folder = _query_value(request, "folder", _DEFAULT_EXTRACTED_TEXTS_FOLDER)
+        folder = _query_value(request, "folder", default_folder)
         return _json_response(
             {"texts": extracted_text_library.list_extracted_texts(folder)}
         )
@@ -144,27 +140,6 @@ def _delete_extracted_text_handler() -> api.Handler:
             return _json_error_response("Missing 'path' query parameter", 400)
         extracted_text_library.delete_extracted_text(path)
         return _json_response({"path": path})
-
-    return handle
-
-
-def _save_review_handler() -> api.Handler:
-    def handle(request: api.Request) -> api.Response:
-        payload = json.loads(request.content)
-        path = payload.get("path")
-        if not path:
-            return _json_error_response("Missing 'path'", 400)
-        flag = payload.get("flag")
-        if flag is not None and flag not in extracted_text_library.REVIEW_FLAGS:
-            return _json_error_response(
-                f"'flag' must be one of {extracted_text_library.REVIEW_FLAGS} or null",
-                400,
-            )
-        try:
-            review = extracted_text_library.save_review(path, flag, payload.get("note"))
-        except FileNotFoundError as exc:
-            return _json_error_response(str(exc), 404)
-        return _json_response({"path": path, **review})
 
     return handle
 

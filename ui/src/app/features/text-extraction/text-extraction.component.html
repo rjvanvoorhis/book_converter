@@ -112,19 +112,14 @@
       <ul class="text-list">
         @for (item of library(); track item.path) {
           <li class="text-item">
-            <button type="button" class="text-info" (click)="openReview(item)">
+            <div class="text-info">
               <span class="name-row">
                 <span class="name">{{ item.title }}</span>
-                @if (item.review_flag === 'good') {
-                  <span class="review-badge good" title="Flagged good">★ Good</span>
-                } @else if (item.review_flag === 'bad') {
-                  <span class="review-badge bad" title="Flagged bad">✕ Bad</span>
-                }
               </span>
               <span class="meta">
                 {{ item.author || 'Unknown author' }} · {{ item.chapter_count }} chapter(s)
               </span>
-            </button>
+            </div>
             <div class="text-item-actions">
               <button type="button" (click)="copyPath(item.path)">
                 {{ copiedPath() === item.path ? 'Copied!' : 'Copy path' }}
@@ -179,61 +174,4 @@
       </ul>
     </div>
   </div>
-
-  @if (reviewingItem(); as item) {
-    <div class="modal-backdrop" (click)="closeReview()">
-      <div class="modal" (click)="$event.stopPropagation()">
-        <div class="modal-header">
-          <h2>{{ item.title }}</h2>
-          <button type="button" class="modal-close" (click)="closeReview()">✕</button>
-        </div>
-        <p class="hint">{{ item.author || 'Unknown author' }} · {{ item.chapter_count }} chapter(s)</p>
-
-        <div class="review-flags">
-          <button
-            type="button"
-            class="flag-btn good"
-            [class.active]="reviewFlagDraft() === 'good'"
-            (click)="toggleReviewFlag('good')"
-          >
-            ★ Good
-          </button>
-          <button
-            type="button"
-            class="flag-btn bad"
-            [class.active]="reviewFlagDraft() === 'bad'"
-            (click)="toggleReviewFlag('bad')"
-          >
-            ✕ Bad
-          </button>
-        </div>
-
-        <div class="field">
-          <label for="reviewNote">Notes (optional)</label>
-          <textarea
-            id="reviewNote"
-            rows="5"
-            placeholder="What worked (or didn't)? Voice, structure, characters, pacing…"
-            [formControl]="reviewNoteDraft"
-          ></textarea>
-        </div>
-
-        @if (reviewError()) {
-          <span class="error">{{ reviewError() }}</span>
-        }
-
-        <div class="modal-actions">
-          <button type="button" (click)="closeReview()">Cancel</button>
-          <button
-            type="button"
-            class="btn-primary"
-            [disabled]="reviewSaving()"
-            (click)="saveReview()"
-          >
-            {{ reviewSaving() ? 'Saving…' : 'Save review' }}
-          </button>
-        </div>
-      </div>
-    </div>
-  }
 </section>

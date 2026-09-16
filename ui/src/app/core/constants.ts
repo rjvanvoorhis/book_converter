@@ -21,8 +21,12 @@ export const DEFAULT_PRONUNCIATIONS_FOLDER = 'pronunciation-dicts';
 // Matches the backend's default in routes.py.
 export const DEFAULT_VOICE_SAMPLES_FOLDER = 'data/voice_samples';
 
-// Matches the backend's default in routes.py.
-export const DEFAULT_EXTRACTED_TEXTS_FOLDER = 'data/texts';
+// The fic-recommendation tooling (taste-profiler, fic-scout, etc.) lives in
+// the sibling story-recs repo and reads/writes this same folder - keep this
+// in sync with book_converter's EXTRACTED_TEXTS_FOLDER env var (see
+// .env.example).
+export const DEFAULT_EXTRACTED_TEXTS_FOLDER =
+  '/home/rvanvoorhis/projects/story-recs/data/texts';
 
 /**
  * A compact IPA palette covering the symbols most English pronunciation

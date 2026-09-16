@@ -1,0 +1,266 @@
+<section class="page">
+  <h1>Organization</h1>
+  <p class="subtitle">
+    Group staged audiobooks into series, and send them on to Audiobookshelf.
+  </p>
+
+  @if (error()) {
+    <p class="error">{{ error() }}</p>
+  }
+  @if (importError()) {
+    <p class="error">{{ importError() }}</p>
+  }
+
+  <div class="library-picker">
+    <label>
+      Library
+      @if (librariesLoading()) {
+        <span class="hint">Loading…</span>
+      } @else if (libraries(); as libs) {
+        <select (change)="setSelectedLibrary($any($event.target).value)">
+          <option value="">Select a library…</option>
+          @for (library of libs; track library.id) {
+            <option [value]="library.id">{{ library.name }}</option>
+          }
+        </select>
+      }
+    </label>
+    @if (librariesError()) {
+      <span class="error">{{ librariesError() }}</span>
+    }
+    @if (libraries()?.length === 0 && !librariesLoading()) {
+      <span class="hint">No libraries configured (or Audiobookshelf isn't set up - see
+      AUDIOBOOKSHELF_URL/AUDIOBOOKSHELF_API_KEY).</span>
+    }
+
+    @if (selectedLibraryId()) {
+      <div class="folder-health">
+        @if (libraryHealthLoading()) {
+          <span class="hint">Checking folders…</span>
+        }
+        @if (libraryHealthError()) {
+          <span class="error">{{ libraryHealthError() }}</span>
+        }
+        @for (folder of libraryHealth(); track folder.folder_id) {
+          <span class="folder-health-item">
+            <span class="hint">{{ folder.path }}</span>
+            <span
+              class="health-badge"
+              [class.healthy]="folder.health.healthy"
+              [class.unhealthy]="!folder.health.healthy"
+              [title]="folder.health.detail"
+            >
+              {{ folder.health.healthy ? 'Accessible' : 'Not accessible' }}
+            </span>
+            @if (!folder.health.healthy) {
+              <button
+                type="button"
+                [disabled]="registeringFolderId() === folder.folder_id"
+                (click)="registerFolder(folder.folder_id)"
+              >
+                {{ registeringFolderId() === folder.folder_id ? 'Registering…' : 'Register' }}
+              </button>
+            }
+          </span>
+        }
+      </div>
+
+      <div class="unlinked-series">
+        @if (unlinkedSeriesLoading()) {
+          <span class="hint">Checking for series not yet tracked here…</span>
+        }
+        @if (unlinkedSeriesError()) {
+          <span class="error">{{ unlinkedSeriesError() }}</span>
+        }
+        @if (unlinkedSeriesNames(); as names) {
+          @if (names.length > 0) {
+            <span class="hint">
+              In Audiobookshelf but not tracked here yet: {{ names.join(', ') }}
+            </span>
+          }
+        }
+      </div>
+    }
+  </div>
+
+  <form class="new-group-form" [formGroup]="newGroupForm" (ngSubmit)="createGroup()">
+    <input
+      type="text"
+      formControlName="name"
+      placeholder="New series name (e.g. Legend of Korra Continuation Fics)"
+    />
+    <select
+      formControlName="libraryId"
+      (change)="setNewGroupLibrary($any($event.target).value)"
+    >
+      <option value="">Library…</option>
+      @for (library of libraries(); track library.id) {
+        <option [value]="library.id">{{ library.name }}</option>
+      }
+    </select>
+    <select formControlName="folderId">
+      <option value="">Folder…</option>
+      @for (folder of foldersForLibrary(newGroupForm.controls.libraryId.value); track folder.id) {
+        <option [value]="folder.id">{{ folder.path }}</option>
+      }
+    </select>
+    <label class="standalone-checkbox">
+      <input type="checkbox" formControlName="isStandalone" />
+      Standalone (no series)
+    </label>
+    <button type="submit" [disabled]="newGroupForm.invalid">New series</button>
+  </form>
+
+  <div class="groups">
+    @for (group of groups(); track group.id) {
+      <div class="group-card">
+        <div class="group-header">
+          <span class="group-name">{{ group.name }}</span>
+          @if (group.is_standalone) {
+            <span class="standalone-badge">standalone</span>
+          }
+          <span class="hint">
+            {{ libraryNameFor(group.library_id) }} / {{ folderPathFor(group.library_id, group.folder_id) }}
+          </span>
+          @if (group.source) {
+            <span class="hint">linked from {{ group.source.type }}</span>
+          }
+          <button type="button" class="danger" (click)="deleteGroup(group)">Delete group</button>
+        </div>
+
+        <ul class="member-list">
+          @for (member of orderedMembers(group); track member.path) {
+            <li
+              class="member-item"
+              draggable="true"
+              (dragstart)="onDragStart(member.path)"
+              (dragend)="onDragEnd()"
+              (dragover)="$event.preventDefault()"
+              (drop)="onDropOnto(group, member.path)"
+            >
+              <span class="drag-handle" title="Drag to reorder">⠿</span>
+              <input
+                class="sequence-input"
+                type="number"
+                min="1"
+                [value]="member.sequence"
+                (change)="setMemberSequence(group, member.path, $any($event.target).value)"
+              />
+              <span class="title">{{ titleFor(member.path) }}</span>
+              @if (importedItemIdFor(group.id, member.path); as itemId) {
+                <span class="imported-badge">Imported</span>
+              } @else if (isVerifying(member.path)) {
+                <span class="imported-badge verifying">Verifying…</span>
+              } @else {
+                <span class="imported-badge unimported">Not imported</span>
+              }
+              <button
+                type="button"
+                [disabled]="importingPath() === member.path || isVerifying(member.path)"
+                (click)="importWork(group, member.path)"
+              >
+                {{
+                  importingPath() === member.path
+                    ? 'Importing…'
+                    : isVerifying(member.path)
+                      ? 'Verifying…'
+                      : importedItemIdFor(group.id, member.path)
+                        ? 'Re-sync metadata'
+                        : 'Send to Audiobookshelf'
+                }}
+              </button>
+              <button type="button" (click)="removeMember(group, member.path)">Remove</button>
+            </li>
+          }
+
+          @for (member of unorderedMembers(group); track member.path) {
+            <li class="member-item unordered">
+              <span class="drag-handle placeholder"></span>
+              <input
+                class="sequence-input"
+                type="number"
+                min="1"
+                placeholder="#"
+                (change)="setMemberSequence(group, member.path, $any($event.target).value)"
+              />
+              <span class="title">{{ titleFor(member.path) }}</span>
+              @if (importedItemIdFor(group.id, member.path); as itemId) {
+                <span class="imported-badge">Imported</span>
+              } @else if (isVerifying(member.path)) {
+                <span class="imported-badge verifying">Verifying…</span>
+              } @else {
+                <span class="imported-badge unimported">Not imported</span>
+              }
+              <button
+                type="button"
+                [disabled]="importingPath() === member.path || isVerifying(member.path)"
+                (click)="importWork(group, member.path)"
+              >
+                {{
+                  importingPath() === member.path
+                    ? 'Importing…'
+                    : isVerifying(member.path)
+                      ? 'Verifying…'
+                      : importedItemIdFor(group.id, member.path)
+                        ? 'Re-sync metadata'
+                        : 'Send to Audiobookshelf'
+                }}
+              </button>
+              <button type="button" (click)="removeMember(group, member.path)">Remove</button>
+            </li>
+          }
+
+          @if (group.members.length === 0) {
+            <li class="empty">No works assigned yet.</li>
+          }
+        </ul>
+      </div>
+    } @empty {
+      <p class="empty">No series yet - pick a library above and create one.</p>
+    }
+  </div>
+
+  <h2>Unlisted</h2>
+  <p class="subtitle">
+    Staged works not yet assigned to a series - every work must be assigned (to a real
+    series, or a standalone bucket) before it can be imported.
+  </p>
+  <div class="unlisted-header">
+    <select (change)="setUnlistedTargetGroup($any($event.target).value)">
+      <option value="">Assign to…</option>
+      @for (group of groups(); track group.id) {
+        <option [value]="group.id">
+          {{ group.name }}{{ group.is_standalone ? ' (standalone)' : '' }}
+        </option>
+      }
+    </select>
+    <button
+      type="button"
+      [disabled]="checkedUnlistedPaths().size === 0 || assigning() || !unlistedTargetGroupId()"
+      (click)="assignChecked()"
+    >
+      {{ assigning() ? 'Assigning…' : 'Assign ' + checkedUnlistedPaths().size + ' Work' + (checkedUnlistedPaths().size === 1 ? '' : 's') }}
+    </button>
+  </div>
+  <ul class="unassigned-list">
+    @for (path of unassignedPaths(); track path) {
+      <li class="unassigned-item">
+        <input
+          type="checkbox"
+          [checked]="isChecked(path)"
+          (change)="toggleChecked(path)"
+        />
+        <span class="title">{{ titleFor(path) }}</span>
+        <button
+          type="button"
+          [disabled]="!unlistedTargetGroupId() || assigning()"
+          (click)="assignSingle(path)"
+        >
+          Assign
+        </button>
+      </li>
+    } @empty {
+      <li class="empty">Every staged audiobook is already assigned.</li>
+    }
+  </ul>
+</section>
