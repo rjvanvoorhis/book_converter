@@ -4,6 +4,9 @@ import pathlib
 
 import dotenv
 
+from book_converter.features.ebook_export import commands as ebook_export_commands
+from book_converter.features.ebook_export import routes as ebook_export_routes
+from book_converter.features.ebook_export import use_cases as ebook_export_use_cases
 from book_converter.features.media_library import routes as media_library_routes
 from book_converter.features.organization import routes as organization_routes
 from book_converter.features.speech_generation import (
@@ -20,6 +23,11 @@ from book_converter.features.text_extraction import commands as text_extraction_
 from book_converter.features.text_extraction import routes as text_extraction_routes
 from book_converter.features.text_extraction import (
     use_cases as text_extraction_use_cases,
+)
+from book_converter.infrastructure.ebook_export import (
+    ao3_native_source,
+    calibre_writer,
+    filesystem_file_store,
 )
 from book_converter.infrastructure.media_library import (
     audiobookshelf_client,
@@ -176,13 +184,14 @@ def build_container() -> Container:
     # Wrapped so the UI's Load -> Review -> Save for later flow (and the
     # per-chapter viewer) hit the source once instead of once per step -
     # see caching_ebook_repository for why.
+    ao3_ebook_repository = ao3_repository.AO3EbookRepository(
+        username=ao3_username, password=ao3_password
+    )
     ebook_repositories = {
         source: caching_ebook_repository.CachingEbookRepository(repository=repository)
         for source, repository in {
             "file": filesystem_repository.FilesystemEbookRepository(),
-            "ao3": ao3_repository.AO3EbookRepository(
-                username=ao3_username, password=ao3_password
-            ),
+            "ao3": ao3_ebook_repository,
             "ffnet": ffnet_repository.FfNetEbookRepository(),
         }.items()
     }
@@ -258,6 +267,22 @@ def build_container() -> Container:
     }
     book_repositories_by_source["extracted"] = extracted_text_repository
 
+    # Ebook export: every source can be written as an ebook; AO3 also offers
+    # its own download files, which are preferred when available.
+    ebook_writers = calibre_writer.build_writers()
+    ebook_file_store = filesystem_file_store.FilesystemEbookFileStore()
+    ao3_source = ao3_native_source.Ao3EbookSource(repository=ao3_ebook_repository)
+    export_ebook_by_source = {
+        source: ebook_export_use_cases.ExportEbookUseCase(
+            book_repository=book_repo,
+            writers=ebook_writers,
+            file_store=ebook_file_store,
+            native_source=ao3_source if source == "ao3" else None,
+            work_lister=ao3_source if source == "ao3" else None,
+        )
+        for source, book_repo in book_repositories_by_source.items()
+    }
+
     # Initialize FFmpeg bundler
     bundle_initializer = ffmpeg_bundler.FfmpegBundleInitializer()
 
@@ -323,6 +348,7 @@ def build_container() -> Container:
                 extract_text_by_source,
                 copyedit_by_editor,
             ),
+            *ebook_export_commands.build_commands(export_ebook_by_source),
             *speech_generation_commands.build_commands(
                 create_audiobook_by_source,
                 list_voices,
@@ -353,6 +379,11 @@ def build_container() -> Container:
                 audio_cleaners,
             ),
             *organization_routes.build_routes(organization_group_store),
+            *ebook_export_routes.build_routes(
+                export_ebook_by_source,
+                formats=sorted(ebook_writers),
+                default_ebooks_folder=os.environ.get("EBOOKS_FOLDER", "data/ebooks"),
+            ),
             *media_library_route_list,
         ],
     )

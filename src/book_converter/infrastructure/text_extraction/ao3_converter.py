@@ -1,4 +1,5 @@
 import dataclasses
+import html as html_lib
 import json
 
 from book_converter.core import entities as core_entities
@@ -11,7 +12,7 @@ class _ParsedWork:
     title: str
     author: str | None
     language: str | None
-    chapters: list[tuple[str | None, str]]
+    chapters: list[tuple[str | None, str, str]]
 
 
 class Ao3HtmlConverter:
@@ -38,7 +39,7 @@ class Ao3HtmlConverter:
             position = index + 1 if multi_work else None
             work_metadata = _work_metadata(work, position, position_width)
             part_chapters = []
-            for chapter_title, content in work.chapters:
+            for chapter_title, content, body_html in work.chapters:
                 if not content:
                     continue
                 title = chapter_title or work.title
@@ -47,6 +48,7 @@ class Ao3HtmlConverter:
                     title=title,
                     content=f"{title}\n\n{content}",
                     order=order,
+                    html=f"<h2>{html_lib.escape(title, quote=False)}</h2>\n{body_html}",
                 )
                 book.add_chapter(chapter)
                 part_chapters.append(chapter)
@@ -131,7 +133,7 @@ def _work_language(tree) -> str | None:
     return html_text.normalize_text(nodes[0].text_content()) or None
 
 
-def _work_chapters(tree) -> list[tuple[str | None, str]]:
+def _work_chapters(tree) -> list[tuple[str | None, str, str]]:
     chapters_div = next(iter(tree.xpath('//div[@id="chapters"]')), None)
     if chapters_div is None:
         return []
@@ -141,7 +143,7 @@ def _work_chapters(tree) -> list[tuple[str | None, str]]:
         chapter_divs = [chapters_div]
 
     return [
-        (_chapter_title(chapter_div), _chapter_content(chapter_div))
+        (_chapter_title(chapter_div), *_chapter_content(chapter_div))
         for chapter_div in chapter_divs
     ]
 
@@ -164,14 +166,14 @@ def _chapter_title(chapter_div) -> str | None:
     return html_text.normalize_text(headings[0].text_content()) or None
 
 
-def _chapter_content(chapter_div) -> str:
+def _chapter_content(chapter_div) -> tuple[str, str]:
     articles = [
         element
         for element in chapter_div.iter("div")
         if element.get("role") == "article"
     ]
     if not articles:
-        return ""
+        return "", ""
     article = articles[0]
     html_text.strip_elements_by_class(article, "landmark")
-    return html_text.extract_body_text(article)
+    return html_text.extract_body_text(article), html_text.extract_body_html(article)

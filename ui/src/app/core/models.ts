@@ -313,3 +313,19 @@ export interface MemberStatus {
 export interface GroupStatusResult {
   members: MemberStatus[];
 }
+
+export interface EbookFormats {
+  formats: string[];
+  default_folder: string;
+}
+
+export interface ExportedEbook {
+  path: string;
+  native: boolean;
+}
+
+export interface ExportEbookResult {
+  format: string;
+  collection: string | null;
+  ebooks: ExportedEbook[];
+}

@@ -1,6 +1,26 @@
 {
-    "Iroh": {
-        "value": "Eye-roh",
-        "method": "spelling"
-    }
+  "Ba Sing Se": {
+    "value": "Bah Sing Say",
+    "method": "spelling"
+  },
+  "Iroh": {
+    "value": "Eye-roh",
+    "method": "spelling"
+  },
+  "Li": {
+    "value": "Lee",
+    "method": "spelling"
+  },
+  "Kya": {
+    "value": "Kai-a",
+    "method": "spelling"
+  },
+  "chi": {
+    "value": "Chee",
+    "method": "spelling"
+  },
+  "Yue": {
+    "value": "Yew-ay",
+    "method": "spelling"
+  }
 }

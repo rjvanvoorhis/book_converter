@@ -82,6 +82,9 @@ export const EXTRACTABLE_BOOK_SOURCES: BookSourceOption[] = BOOK_SOURCES.filter(
   (source) => source.value !== 'extracted'
 );
 
+// Matches the backend's EBOOKS_FOLDER default (see .env.example).
+export const DEFAULT_EBOOKS_FOLDER = 'data/ebooks';
+
 export const COPY_EDITORS: SelectOption[] = [
   { value: 'languagetool', label: 'LanguageTool' },
   { value: 'lmstudio', label: 'LM Studio' }

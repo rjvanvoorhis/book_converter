@@ -50,6 +50,48 @@ class AO3EbookRepository:
             return self._get_series(value)
         return self._get_work(value)
 
+    def list_series_works(
+        self, identifier: str
+    ) -> tuple[str | None, list[str]] | None:
+        """(series title, work ids in series order) for a series identifier,
+        or None when the identifier is a single work."""
+        kind, series_id = _parse_identifier(identifier)
+        if kind != "series":
+            return None
+        response = self._get(f"{self.base_url}/series/{series_id}")
+        if response.status_code == 404:
+            raise ValueError(f"Could not find series '{series_id}'")
+        response.raise_for_status()
+        response.encoding = "utf-8"
+        title, work_ids = _parse_series_page(response.text)
+        if not work_ids:
+            raise ValueError(f"Series '{series_id}' does not contain any works")
+        return title, work_ids
+
+    def download_work(
+        self, identifier: str, file_format: str
+    ) -> tuple[bytes, str] | None:
+        """The work as AO3's own "Download" file in `file_format` (epub,
+        mobi, azw3, pdf, html) plus the link it came from, or None when that
+        isn't offered - series have no download, and a format AO3 doesn't
+        build has no link."""
+        kind, work_id = _parse_identifier(identifier)
+        if kind != "work":
+            return None
+        tree = html_text.parse_html(self._fetch_work_html(work_id))
+        links = {
+            a.text_content().strip().lower(): a.get("href")
+            for item in html_text.find_by_classes(tree, "li", "download")
+            for a in item.iter("a")
+            if a.get("href")
+        }
+        href = links.get(file_format.lower())
+        if href is None:
+            return None
+        response = self._get(f"{self.base_url}{href}")
+        response.raise_for_status()
+        return response.content, href
+
     def _get_work(self, work_id: str) -> entities.RawBook:
         html = self._fetch_work_html(work_id)
         payload = {

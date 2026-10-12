@@ -1,4 +1,5 @@
 import io
+import re
 import unicodedata
 
 import ebooklib
@@ -52,6 +53,10 @@ def convert_epub_book(source: epub.EpubBook) -> core_entities.Book:
     titles_by_href = _toc_titles_by_href(source.toc)
 
     order = 0
+    # Pages whose heading just repeats the book title: usually a title or
+    # summary page, but in a single-chapter work (AO3) they're the story.
+    # Only used if nothing else survives.
+    title_pages: list[tuple[str, str, str]] = []
     for idref, _linear in source.spine:
         item = source.get_item_with_id(idref)
         if item is None or item.get_type() != ebooklib.ITEM_DOCUMENT:
@@ -60,15 +65,23 @@ def convert_epub_book(source: epub.EpubBook) -> core_entities.Book:
             continue
 
         tree = html_text.parse_html(item.get_content())
+        html_text.strip_ao3_paratext(tree)
+        html_text.strip_trailing_author_note(tree)
 
         title = titles_by_href.get(_strip_fragment(item.get_name()))
         if not title:
             title = html_text.extract_heading(tree) or f"Chapter {order + 1}"
 
+        body_html = html_text.extract_body_html(tree)
         content = html_text.extract_body_text(tree)
         if not content:
             continue
+        if title.strip().lower() == book.metadata.title.strip().lower():
+            title_pages.append((title, content, body_html))
+            continue
         if _is_front_or_back_matter(title, book.metadata.title):
+            continue
+        if _is_notice_chapter(title, content):
             continue
 
         book.add_chapter(
@@ -77,9 +90,25 @@ def convert_epub_book(source: epub.EpubBook) -> core_entities.Book:
                 title=title,
                 content=content,
                 order=order,
+                html=body_html,
             )
         )
         order += 1
+
+    if not book.chapters:
+        # A title/summary page precedes the story itself, so when there's
+        # more than one candidate the first is that page.
+        for title, content, body_html in title_pages[1:] or title_pages:
+            book.add_chapter(
+                core_entities.Chapter(
+                    id=core_entities.ChapterId(order),
+                    title=title,
+                    content=content,
+                    order=order,
+                    html=body_html,
+                )
+            )
+            order += 1
 
     return book
 
@@ -92,6 +121,17 @@ def _is_front_or_back_matter(title: str, book_title: str) -> bool:
     # always a title/summary page (common in AO3 exports), not a chapter
     # actually titled after the book.
     return normalized == book_title.strip().lower()
+
+
+# A chapter an author posted only to say something ("Announcement", "Hiatus
+# notice", ...). Requires a short body as well as the title, so a real chapter
+# that happens to be called "Announcement" survives.
+_NOTICE_TITLE = re.compile(r"\b(announc\w*|hiatus|author'?s? note|update notice)\b", re.I)
+_NOTICE_MAX_WORDS = 1000
+
+
+def _is_notice_chapter(title: str, content: str) -> bool:
+    return bool(_NOTICE_TITLE.search(title)) and len(content.split()) <= _NOTICE_MAX_WORDS
 
 
 def _extract_metadata(source: epub.EpubBook) -> core_entities.BookMetadata:

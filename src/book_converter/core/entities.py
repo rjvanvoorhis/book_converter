@@ -19,6 +19,10 @@ class Chapter:
     title: str
     content: str
     order: int
+    # Sanitized XHTML body (headings, paragraphs, inline emphasis) preserving
+    # the typography `content` flattens for speech - None when the source
+    # carried no markup (e.g. hand-edited extracted text).
+    html: str | None = None
 
     def get_word_count(self):
         return len(self.content.split())

@@ -1,3 +1,4 @@
+import html as html_lib
 import json
 import re
 
@@ -37,6 +38,7 @@ class FfNetHtmlConverter:
             content = _chapter_content(tree)
             if not content:
                 continue
+            body_html = _chapter_html(tree)
             fallback_title = (
                 book.metadata.title if single_chapter else f"Chapter {number}"
             )
@@ -48,6 +50,7 @@ class FfNetHtmlConverter:
                     title=title,
                     content=f"{title}\n\n{content}",
                     order=order,
+                    html=f"<h2>{html_lib.escape(title, quote=False)}</h2>\n{body_html}",
                 )
             )
 
@@ -113,3 +116,10 @@ def _chapter_content(tree) -> str:
     if story_div is None:
         return ""
     return html_text.extract_body_text(story_div)
+
+
+def _chapter_html(tree) -> str:
+    story_div = tree.get_element_by_id("storytext", None)
+    if story_div is None:
+        return ""
+    return html_text.extract_body_html(story_div)

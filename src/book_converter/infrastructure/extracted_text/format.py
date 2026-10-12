@@ -15,14 +15,17 @@ def write_book(folder: str, book: core_entities.Book) -> None:
     for chapter in book.chapters:
         filename = f"{chapter.order:04d}_{_slugify(chapter.title)}.txt"
         (target / filename).write_text(chapter.content, encoding="utf-8")
-        chapters_manifest.append(
-            {
-                "id": chapter.id,
-                "title": chapter.title,
-                "order": chapter.order,
-                "filename": filename,
-            }
-        )
+        entry = {
+            "id": chapter.id,
+            "title": chapter.title,
+            "order": chapter.order,
+            "filename": filename,
+        }
+        if chapter.html:
+            html_filename = filename.removesuffix(".txt") + ".html"
+            (target / html_filename).write_text(chapter.html, encoding="utf-8")
+            entry["html_filename"] = html_filename
+        chapters_manifest.append(entry)
 
     manifest = {
         "title": book.metadata.title,
@@ -56,12 +59,19 @@ def read_book(folder: str) -> core_entities.Book:
 
     for entry in sorted(manifest["chapters"], key=lambda entry: entry["order"]):
         content = (source / entry["filename"]).read_text(encoding="utf-8")
+        html_filename = entry.get("html_filename")
+        chapter_html = (
+            (source / html_filename).read_text(encoding="utf-8")
+            if html_filename and (source / html_filename).is_file()
+            else None
+        )
         book.add_chapter(
             core_entities.Chapter(
                 id=core_entities.ChapterId(entry["id"]),
                 title=entry["title"],
                 content=content,
                 order=entry["order"],
+                html=chapter_html,
             )
         )
 

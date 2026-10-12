@@ -1,0 +1,111 @@
+<section class="page">
+  <h1>Ebooks</h1>
+  <p class="hint intro">
+    Turn an AO3 work, FanFiction.net story, ebook file or saved extracted text into an ebook you
+    can add to Audiobookshelf. AO3 works are AO3's own download; a series becomes one ebook per
+    work, in a folder named after the series.
+  </p>
+
+  <fieldset class="section" [formGroup]="form">
+    <legend>Create an ebook</legend>
+
+    <div class="field">
+      <label for="source">Source</label>
+      <select id="source" formControlName="source" (change)="onSourceChange()">
+        @for (option of sources; track option.value) {
+          <option [value]="option.value">{{ option.label }}</option>
+        }
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="identifier">Identifier</label>
+      <div class="path-row">
+        <input
+          id="identifier"
+          type="text"
+          formControlName="identifier"
+          [placeholder]="identifierPlaceholder()"
+        />
+        @if (source() === 'file') {
+          <app-file-picker (fileSelected)="onPathPicked($event)"></app-file-picker>
+        }
+        @if (source() === 'ffnet') {
+          <app-file-picker
+            [extensions]="['json']"
+            emptyLabel="No .ffnet.json exports here."
+            (fileSelected)="onPathPicked($event)"
+          ></app-file-picker>
+        }
+        @if (source() === 'extracted') {
+          <app-file-picker
+            [pickDirectories]="true"
+            (fileSelected)="onPathPicked($event)"
+          ></app-file-picker>
+        }
+      </div>
+      @if (source() === 'extracted' && savedTexts().length) {
+        <select
+          class="saved-texts"
+          aria-label="Saved extracted texts"
+          (change)="onPathPicked($any($event.target).value)"
+        >
+          <option value="">Pick from saved for later…</option>
+          @for (item of savedTexts(); track item.path) {
+            <option [value]="item.path">{{ item.title }}</option>
+          }
+        </select>
+      }
+      @if (isSeries()) {
+        <p class="hint">Series: one ebook per work will be created.</p>
+      }
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="format">Format</label>
+        <select id="format" formControlName="format">
+          @for (format of formats(); track format) {
+            <option [value]="format">{{ format }}</option>
+          }
+        </select>
+      </div>
+      <div class="field grow">
+        <label for="target">Output folder</label>
+        <div class="path-row">
+          <input id="target" type="text" formControlName="target" />
+          <app-file-picker
+            [pickDirectories]="true"
+            (fileSelected)="onTargetPicked($event)"
+          ></app-file-picker>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn-primary" [disabled]="form.invalid || running()" (click)="create()">
+        {{ running() ? 'Creating…' : 'Create ebook' }}
+      </button>
+      @if (error()) {
+        <span class="error">{{ error() }}</span>
+      }
+    </div>
+  </fieldset>
+
+  @if (result(); as done) {
+    <fieldset class="section">
+      <legend>Created</legend>
+      @if (done.collection) {
+        <p class="hint">Series “{{ done.collection }}” - {{ done.ebooks.length }} ebooks</p>
+      }
+      <ul class="ebook-list">
+        @for (ebook of done.ebooks; track ebook.path) {
+          <li>
+            <span class="path">{{ ebook.path }}</span>
+            <span class="badge">{{ ebook.native ? 'AO3 download' : 'built' }}</span>
+          </li>
+        }
+      </ul>
+    </fieldset>
+  }
+</section>

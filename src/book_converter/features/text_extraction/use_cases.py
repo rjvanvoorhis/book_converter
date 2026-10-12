@@ -84,6 +84,9 @@ class CopyEditTextUseCase:
                 dto.ChapterEditDto(id=chapter.id, title=chapter.title, diff=diff)
             )
             chapter.content = edited
+            if edited != original:
+                # The formatted copy no longer matches the edited text.
+                chapter.html = None
 
         self.saver.save(input_dto.identifier, book)
         return dto.CopyEditOutput(
