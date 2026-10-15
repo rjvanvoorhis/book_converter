@@ -33,6 +33,34 @@ _NON_STORY_TITLES = frozenset(
 )
 
 
+# EPUB 3 structural semantics (epub:type) that mark a document as something
+# other than story text. Polished EPUB 3 files (story-recs scripts/polish_epub.py)
+# label their title page, author's notes and work-details page this way and give
+# those pages generic titles ("Notes", "Work details") that the title list above
+# cannot recognise.
+_NON_STORY_EPUB_TYPES = frozenset(
+    {
+        "cover",
+        "frontmatter",
+        "backmatter",
+        "titlepage",
+        "halftitlepage",
+        "toc",
+        "landmarks",
+        "preface",
+        "foreword",
+        "afterword",
+        "appendix",
+        "colophon",
+        "copyright-page",
+        "dedication",
+        "acknowledgments",
+        "acknowledgements",
+    }
+)
+_EPUB_TYPE_ATTRS = ("epub:type", "{http://www.idpf.org/2007/ops}type", "type")
+
+
 class EpubConverter:
     def supports(self) -> list[entities.BookFormat]:
         return ["epub"]
@@ -67,6 +95,9 @@ def convert_epub_book(source: epub.EpubBook) -> core_entities.Book:
         tree = html_text.parse_html(item.get_content())
         html_text.strip_ao3_paratext(tree)
         html_text.strip_trailing_author_note(tree)
+
+        if _is_non_story_by_epub_type(tree):
+            continue
 
         title = titles_by_href.get(_strip_fragment(item.get_name()))
         if not title:
@@ -111,6 +142,29 @@ def convert_epub_book(source: epub.EpubBook) -> core_entities.Book:
             order += 1
 
     return book
+
+
+def _epub_types(element) -> set[str]:
+    for attr in _EPUB_TYPE_ATTRS[:2]:
+        value = element.get(attr)
+        if value:
+            return set(value.lower().split())
+    return set()
+
+
+def _is_non_story_by_epub_type(tree) -> bool:
+    """True when the document's body (or its top-level sections) is tagged as
+    front/back matter. A section tagged "chapter" always wins, so a work whose
+    body is front matter-ish but whose section is the story is kept."""
+    body = tree if tree.tag == "body" else tree.find(".//body")
+    if body is None:
+        return False
+    types = _epub_types(body)
+    for child in body:
+        types |= _epub_types(child)
+    if "chapter" in types or "bodymatter" in types and not (types & _NON_STORY_EPUB_TYPES):
+        return False
+    return bool(types & _NON_STORY_EPUB_TYPES)
 
 
 def _is_front_or_back_matter(title: str, book_title: str) -> bool:
